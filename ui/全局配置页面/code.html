@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+
+<html lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AI外贸助手 - 全局配置</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "primary": "#1349ec",
+            "background-light": "#f6f6f8",
+            "background-dark": "#101522",
+          },
+          fontFamily: {
+            "display": ["Inter", "sans-serif"]
+          },
+          borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+  </style>
+</head>
+<body class="font-display">
+<div class="relative flex min-h-screen w-full bg-background-light dark:bg-background-dark">
+<!-- SideNavBar -->
+<aside class="flex w-64 flex-col border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-background-dark p-4">
+<div class="flex flex-col gap-4">
+<div class="flex items-center gap-3">
+<div class="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-10" data-alt="Application logo" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuAngpR3dvLcvPzi3juKOJyArlr1ZEzNfjryh24wJa8UZaaOrwGT17rf2vo8MhPPchTZCFSrG8a9XBt3dBBGMxuS-sFiH0DsWgnS39Tj5wb5mKR7zUkXtS5Uy5sulYqjuNRnYPs6nIyjReQLMOcgaYQlLoxJS2dy0ANQhYHCyFKYUGU_qSIQiCiSLASweDKe0sk0-5yTJ-dnFSWCZ9bQ-038Q3XXNNXf9PawJKteowDKGjaE9fgag8vpwK3MA7UxJrhboZL3SuBJfHk");'></div>
+<div class="flex flex-col">
+<h1 class="text-gray-900 dark:text-white text-base font-medium leading-normal">AI外贸助手</h1>
+<p class="text-gray-500 dark:text-gray-400 text-sm font-normal leading-normal">专业版</p>
+</div>
+</div>
+<nav class="flex flex-col gap-2 mt-4">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<p class="text-sm font-medium leading-normal">Dashboard</p>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined">group</span>
+<p class="text-sm font-medium leading-normal">客户管理</p>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined">mail</span>
+<p class="text-sm font-medium leading-normal">邮件营销</p>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined">bar_chart</span>
+<p class="text-sm font-medium leading-normal">数据分析</p>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined">help_center</span>
+<p class="text-sm font-medium leading-normal">帮助中心</p>
+</a>
+</nav>
+</div>
+<div class="mt-auto flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-primary dark:bg-primary/20" href="#">
+<span class="material-symbols-outlined">settings</span>
+<p class="text-sm font-medium leading-normal">全局配置</p>
+</a>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="flex-1 overflow-y-auto">
+<div class="px-6 py-8 md:px-10">
+<!-- PageHeading -->
+<div class="mb-8">
+<div class="flex flex-wrap justify-between gap-3">
+<div class="flex min-w-72 flex-col gap-2">
+<h1 class="text-gray-900 dark:text-white text-3xl font-bold leading-tight tracking-tight">全局配置</h1>
+<p class="text-gray-500 dark:text-gray-400 text-base font-normal leading-normal">配置软件核心参数以确保AI助手正常运行。</p>
+</div>
+</div>
+</div>
+<!-- Settings Form -->
+<div class="flex flex-col gap-8">
+<!-- Section 1: LLM -->
+<div class="bg-white dark:bg-background-dark dark:border dark:border-gray-800 rounded-xl shadow-sm">
+<div class="p-5 border-b border-gray-200 dark:border-gray-800">
+<h2 class="text-gray-900 dark:text-white text-lg font-bold leading-tight">大模型 (LLM) 设置</h2>
+</div>
+<div class="p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">Base URL</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" placeholder="https://api.openai.com/v1"/>
+</label>
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">API Key</p>
+<div class="flex w-full items-stretch">
+<input class="form-input flex-1 rounded-l-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 border-r-0 text-sm font-normal" type="password" value="••••••••••••••••••••••••"/>
+<div class="text-gray-500 dark:text-gray-400 flex border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 items-center justify-center px-3 rounded-r-lg border-l-0">
+<span class="material-symbols-outlined text-xl">visibility</span>
+</div>
+</div>
+</label>
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">模型名称</p>
+<select class="form-select w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 px-3 text-sm font-normal">
+<option>gpt-4-turbo</option>
+<option>gpt-3.5-turbo</option>
+<option>claude-3-opus</option>
+</select>
+</label>
+<div class="flex items-end">
+<button class="flex h-11 w-full md:w-auto items-center justify-center gap-2 rounded-lg bg-primary/10 dark:bg-primary/20 px-4 py-2.5 text-sm font-semibold text-primary" type="button">
+<span class="material-symbols-outlined text-xl">link</span>
+<span>测试连接</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Section 2: My Info -->
+<div class="bg-white dark:bg-background-dark dark:border dark:border-gray-800 rounded-xl shadow-sm">
+<div class="p-5 border-b border-gray-200 dark:border-gray-800">
+<h2 class="text-gray-900 dark:text-white text-lg font-bold leading-tight">我的信息</h2>
+</div>
+<div class="p-5 grid grid-cols-1 gap-6">
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">我的公司名</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" placeholder="例如：环球贸易有限公司"/>
+</label>
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">我的产品/服务简介</p>
+<textarea class="form-textarea w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-gray-400 px-3 py-2 text-sm font-normal" placeholder="简要介绍您的主要产品或服务，这将帮助AI更好地生成内容..." rows="4"></textarea>
+</label>
+</div>
+</div>
+<!-- Section 3: SMTP -->
+<div class="bg-white dark:bg-background-dark dark:border dark:border-gray-800 rounded-xl shadow-sm">
+<div class="p-5 border-b border-gray-200 dark:border-gray-800">
+<h2 class="text-gray-900 dark:text-white text-lg font-bold leading-tight">邮件发送 (SMTP) 设置</h2>
+</div>
+<div class="p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">SMTP 服务器</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" placeholder="例如：smtp.example.com"/>
+</label>
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">端口</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" placeholder="例如：465"/>
+</label>
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">邮箱账号</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" placeholder="例如：your-email@example.com"/>
+</label>
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">邮箱密码/授权码</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" type="password" value="••••••••••••"/>
+</label>
+<div class="md:col-span-2 flex justify-end">
+<button class="flex h-11 w-full md:w-auto items-center justify-center gap-2 rounded-lg bg-primary/10 dark:bg-primary/20 px-4 py-2.5 text-sm font-semibold text-primary" type="button">
+<span class="material-symbols-outlined text-xl">send</span>
+<span>发送测试邮件</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Section 4 & 5 -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+<!-- System Settings -->
+<div class="bg-white dark:bg-background-dark dark:border dark:border-gray-800 rounded-xl shadow-sm">
+<div class="p-5 border-b border-gray-200 dark:border-gray-800">
+<h2 class="text-gray-900 dark:text-white text-lg font-bold leading-tight">系统设置</h2>
+</div>
+<div class="p-5">
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">管理员邮箱</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" placeholder="用于接收系统通知"/>
+</label>
+</div>
+</div>
+<!-- Customer Rating -->
+<div class="bg-white dark:bg-background-dark dark:border dark:border-gray-800 rounded-xl shadow-sm lg:row-span-2">
+<div class="p-5 border-b border-gray-200 dark:border-gray-800">
+<h2 class="text-gray-900 dark:text-white text-lg font-bold leading-tight">客户评级标准</h2>
+</div>
+<div class="p-5">
+<label class="flex flex-col h-full">
+<textarea class="form-textarea w-full flex-1 rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-gray-400 px-3 py-2 text-sm font-normal min-h-[150px]" placeholder="描述您的客户评级标准，例如：
+5星：明确表达采购意向，有具体需求和预算。
+4星：对产品感兴趣，询问了详细信息。
+..."></textarea>
+</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Sticky Footer with actions -->
+<footer class="sticky bottom-0 bg-white/80 dark:bg-background-dark/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-800 px-6 py-4 md:px-10">
+<div class="flex justify-end gap-3">
+<button class="flex h-11 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700" type="button">取消</button>
+<button class="flex h-11 items-center justify-center rounded-lg bg-primary px-6 text-sm font-semibold text-white hover:bg-primary/90 disabled:bg-primary/50 disabled:cursor-not-allowed" type="submit">保存更改</button>
+</div>
+</footer>
+</main>
+</div>
+</body></html>

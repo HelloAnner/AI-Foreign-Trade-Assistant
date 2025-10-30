@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Step 3: 生成产品切入点分析</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+<script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "primary": "#1349ec",
+            "background-light": "#f6f6f8",
+            "background-dark": "#101522",
+          },
+          fontFamily: {
+            "display": ["Inter", "Noto Sans", "sans-serif"]
+          },
+          borderRadius: {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings:
+      'FILL' 0,
+      'wght' 400,
+      'GRAD' 0,
+      'opsz' 24
+    }
+  </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display">
+<div class="relative flex min-h-screen w-full flex-col group/design-root overflow-x-hidden">
+<div class="layout-container flex h-full grow flex-col">
+<div class="flex flex-1 justify-center py-10 px-4 sm:px-10 lg:px-20">
+<div class="layout-content-container flex flex-col max-w-[960px] flex-1 gap-8">
+<!-- ProgressBar -->
+<div class="flex flex-col gap-3">
+<div class="flex gap-6 justify-between">
+<p class="text-neutral-900 dark:text-neutral-200 text-base font-medium leading-normal">Step 3 of 4</p>
+</div>
+<div class="rounded-full bg-neutral-200 dark:bg-neutral-700 h-2">
+<div class="h-2 rounded-full bg-primary" style="width: 75%;"></div>
+</div>
+</div>
+<!-- PageHeading -->
+<div class="flex flex-wrap justify-between items-center gap-4">
+<h1 class="text-neutral-900 dark:text-white text-4xl font-black leading-tight tracking-[-0.033em] min-w-72">Step 3: 生成产品切入点分析</h1>
+</div>
+<!-- AI Report Section -->
+<div class="flex flex-col gap-8">
+<!-- Card -->
+<div class="@container">
+<div class="flex flex-col items-stretch justify-start rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.05)] bg-white dark:bg-neutral-800/50">
+<div class="flex w-full min-w-72 grow flex-col items-stretch justify-center gap-2 p-6">
+<p class="text-primary text-sm font-medium leading-normal">AI 产品切入点建议</p>
+<p class="text-neutral-900 dark:text-white text-lg font-bold leading-tight tracking-[-0.015em]">客户核心业务</p>
+<p class="text-neutral-500 dark:text-neutral-400 text-base font-normal leading-normal">AI生成的关于客户主要业务活动、产品和市场地位的摘要。点击下方文本框编辑内容。</p>
+</div>
+</div>
+</div>
+<!-- TextFields Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- TextField 1 -->
+<div class="flex flex-col min-w-40 flex-1">
+<p class="text-neutral-900 dark:text-white text-base font-medium leading-normal pb-2">潜在需求/痛点</p>
+<textarea class="form-input flex w-full min-w-0 flex-1 resize-y overflow-hidden rounded-lg text-neutral-900 dark:text-white focus:outline-0 focus:ring-2 focus:ring-primary/50 border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 focus:border-primary dark:focus:border-primary min-h-48 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 p-4 text-base font-normal leading-normal" placeholder="例如：客户可能在供应链管理上遇到效率瓶颈，导致交货延迟..."></textarea>
+</div>
+<!-- TextField 2 -->
+<div class="flex flex-col min-w-40 flex-1">
+<p class="text-neutral-900 dark:text-white text-base font-medium leading-normal pb-2">我方切入点</p>
+<textarea class="form-input flex w-full min-w-0 flex-1 resize-y overflow-hidden rounded-lg text-neutral-900 dark:text-white focus:outline-0 focus:ring-2 focus:ring-primary/50 border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 focus:border-primary dark:focus:border-primary min-h-48 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 p-4 text-base font-normal leading-normal" placeholder="例如：我方的智能物流解决方案可以通过优化路线和实时追踪，将客户的交货准时率提高20%..."></textarea>
+</div>
+</div>
+</div>
+<!-- Action Buttons -->
+<div class="flex flex-col sm:flex-row items-center justify-end gap-4 pt-4">
+<button class="flex items-center justify-center gap-2 h-10 px-5 w-full sm:w-auto text-center font-semibold rounded-lg bg-neutral-200/80 dark:bg-neutral-800 text-neutral-900 dark:text-white transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700">
+<span class="material-symbols-outlined text-xl">refresh</span>
+              重新生成
+            </button>
+<button class="flex items-center justify-center gap-2 h-10 px-8 w-full sm:w-auto text-center font-semibold rounded-lg bg-primary text-white transition-colors hover:bg-primary/90">
+              下一步
+              <span class="material-symbols-outlined text-xl">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</body></html>
