@@ -45,7 +45,8 @@ export const useSettingsStore = defineStore('settings', {
       try {
         const payload = await saveSettings({ ...this.data, ...partial })
         if (payload.ok) {
-          this.data = { ...this.data, ...partial }
+          const latest = payload.data || partial
+          this.data = { ...this.data, ...latest }
           ui.pushToast('配置已保存', 'success')
         } else if (payload.error) {
           ui.pushToast(payload.error, 'error')
@@ -88,7 +89,8 @@ export const useSettingsStore = defineStore('settings', {
       try {
         const payload = await testSearch()
         if (payload.ok) {
-          ui.pushToast('搜索 API 测试成功', 'success')
+          const message = payload.data?.message || '搜索 API 测试成功'
+          ui.pushToast(message, 'success')
         } else {
           ui.pushToast(payload.error || '搜索测试失败', 'error')
         }

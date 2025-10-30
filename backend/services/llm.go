@@ -49,17 +49,8 @@ func NewLLMClient(st *store.Store, client *http.Client) *LLMClient {
 
 // TestConnection sends a lightweight chat completion request to validate credentials.
 func (c *LLMClient) TestConnection(ctx context.Context) (map[string]string, error) {
-	if c == nil || c.store == nil {
-		return nil, fmt.Errorf("llm client not initialized")
-	}
-
-	settings, err := c.store.GetSettings(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load settings: %w", err)
-	}
-
-	if settings.LLMBaseURL == "" || settings.LLMAPIKey == "" || settings.LLMModel == "" {
-		return nil, fmt.Errorf("请先在设置中完整配置 LLM Base URL / API Key / 模型名称")
+	if _, err := c.ensureConfigured(ctx); err != nil {
+		return nil, err
 	}
 
 	content, usage, err := c.Chat(ctx, []ChatMessage{{Role: "user", Content: "你好"}}, ChatOptions{MaxTokens: 32, Temperature: 0.1})
@@ -91,17 +82,42 @@ func stringifyError(payload map[string]any) string {
 	return "unknown error"
 }
 
-// Chat executes a chat completion request and returns the assistant message content.
-func (c *LLMClient) Chat(ctx context.Context, messages []ChatMessage, opts ChatOptions) (string, *Usage, error) {
+// ensureConfigured returns settings if LLM credentials are present.
+func (c *LLMClient) ensureConfigured(ctx context.Context) (*store.Settings, error) {
 	if c == nil || c.store == nil {
-		return "", nil, fmt.Errorf("llm client not initialized")
+		return nil, fmt.Errorf("llm client not initialized")
 	}
 	settings, err := c.store.GetSettings(ctx)
 	if err != nil {
-		return "", nil, fmt.Errorf("读取配置失败: %w", err)
+		return nil, fmt.Errorf("读取配置失败: %w", err)
 	}
-	if settings.LLMBaseURL == "" || settings.LLMAPIKey == "" || settings.LLMModel == "" {
-		return "", nil, fmt.Errorf("LLM 配置不完整，请在设置页填写 Base URL、API Key 与模型名称")
+	var missing []string
+	if strings.TrimSpace(settings.LLMBaseURL) == "" {
+		missing = append(missing, "Base URL")
+	}
+	if strings.TrimSpace(settings.LLMAPIKey) == "" {
+		missing = append(missing, "API Key")
+	}
+	if strings.TrimSpace(settings.LLMModel) == "" {
+		missing = append(missing, "模型名称")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("LLM 配置不完整，缺少：%s", strings.Join(missing, " / "))
+	}
+	return settings, nil
+}
+
+// EnsureConfigured validates LLM credentials without issuing a request.
+func (c *LLMClient) EnsureConfigured(ctx context.Context) error {
+	_, err := c.ensureConfigured(ctx)
+	return err
+}
+
+// Chat executes a chat completion request and returns the assistant message content.
+func (c *LLMClient) Chat(ctx context.Context, messages []ChatMessage, opts ChatOptions) (string, *Usage, error) {
+	settings, err := c.ensureConfigured(ctx)
+	if err != nil {
+		return "", nil, err
 	}
 
 	if len(messages) == 0 {

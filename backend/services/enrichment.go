@@ -28,6 +28,10 @@ func (s *EnrichmentServiceImpl) ResolveCompany(ctx context.Context, req *domain.
 		return nil, fmt.Errorf("请输入客户公司名称或官网地址")
 	}
 
+	if err := s.llm.EnsureConfigured(ctx); err != nil {
+		return nil, err
+	}
+
 	query := strings.TrimSpace(req.Query)
 	var (
 		searchItems []SearchItem

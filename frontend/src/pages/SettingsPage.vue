@@ -51,7 +51,7 @@
               <h2>大模型 (LLM) 设置</h2>
               <p>配置 API 地址与密钥，用于智能分析与内容生成。</p>
             </div>
-            <button type="button" class="chip" @click="settingsStore.testLLM">
+            <button type="button" class="chip" @click="handleTestLLM">
               <span class="material">bolt</span>
               测试连接
             </button>
@@ -101,7 +101,7 @@
               <h2>邮件发送 (SMTP) 设置</h2>
               <p>配置用于自动发送跟进邮件的 SMTP 服务器。</p>
             </div>
-            <button type="button" class="chip" @click="settingsStore.testSMTP">
+            <button type="button" class="chip" @click="handleTestSMTP">
               <span class="material">send</span>
               发送测试邮件
             </button>
@@ -164,7 +164,7 @@ C级：暂无明确需求，仅收集资料。"
               <h2>搜索 API 设置</h2>
               <p>配置用于外部情报搜索的 API。</p>
             </div>
-            <button type="button" class="chip" @click="settingsStore.testSearch">
+            <button type="button" class="chip" @click="handleTestSearch">
               <span class="material">travel_explore</span>
               测试搜索
             </button>
@@ -193,7 +193,7 @@ C级：暂无明确需求，仅收集资料。"
 </template>
 
 <script setup>
-import { onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
@@ -218,6 +218,8 @@ const local = reactive({
   search_api_key: '',
 })
 
+const fieldKeys = Object.keys(local)
+
 onMounted(() => {
   settingsStore.fetchSettings()
 })
@@ -231,8 +233,47 @@ watch(
   { immediate: true }
 )
 
-const handleSave = () => {
-  settingsStore.saveSettings({ ...local })
+const isDirty = computed(() => {
+  if (!data.value) {
+    return fieldKeys.some((key) => {
+      const value = local[key]
+      return value !== '' && value !== null && value !== undefined
+    })
+  }
+  return fieldKeys.some((key) => local[key] !== data.value[key])
+})
+
+const ensureSaved = async () => {
+  if (!isDirty.value) {
+    return true
+  }
+  await settingsStore.saveSettings({ ...local })
+  return !isDirty.value
+}
+
+const handleSave = async () => {
+  await settingsStore.saveSettings({ ...local })
+}
+
+const handleTestLLM = async () => {
+  if (!(await ensureSaved())) {
+    return
+  }
+  await settingsStore.testLLM()
+}
+
+const handleTestSMTP = async () => {
+  if (!(await ensureSaved())) {
+    return
+  }
+  await settingsStore.testSMTP()
+}
+
+const handleTestSearch = async () => {
+  if (!(await ensureSaved())) {
+    return
+  }
+  await settingsStore.testSearch()
 }
 
 const goBack = () => {

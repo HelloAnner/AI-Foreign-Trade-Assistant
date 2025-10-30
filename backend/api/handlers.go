@@ -51,7 +51,12 @@ func (h *Handlers) SaveSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, Response{OK: true})
+	settings, err := h.Store.GetSettings(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusOK, Response{OK: true})
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: settings})
 }
 
 // TestLLM validates the configured LLM credentials.
@@ -79,7 +84,7 @@ func (h *Handlers) TestSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, Response{OK: true})
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: map[string]string{"message": "搜索 API 测试成功"}})
 }
 
 // ResolveCompany triggers the multi-source enrichment pipeline.

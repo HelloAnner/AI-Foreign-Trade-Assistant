@@ -26,6 +26,7 @@ type SearchItem struct {
 type SearchClient struct {
 	store      *store.Store
 	httpClient *http.Client
+	fetcher    *WebFetcher
 }
 
 // NewSearchClient constructs a search client.
@@ -36,6 +37,7 @@ func NewSearchClient(st *store.Store, client *http.Client) *SearchClient {
 	return &SearchClient{
 		store:      st,
 		httpClient: client,
+		fetcher:    NewWebFetcher(client),
 	}
 }
 
@@ -72,10 +74,47 @@ func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]S
 
 // TestSearch validates that the configured provider can return at least one result.
 func (c *SearchClient) TestSearch(ctx context.Context) error {
-	_, err := c.Search(ctx, "Apple Inc.", 1)
+	if c == nil || c.store == nil {
+		return fmt.Errorf("search client not initialized")
+	}
+	settings, err := c.store.GetSettings(ctx)
+	if err != nil {
+		return fmt.Errorf("读取配置失败: %w", err)
+	}
+
+	provider := strings.ToLower(strings.TrimSpace(settings.SearchProvider))
+	if provider == "" {
+		return fmt.Errorf("请先在设置中配置搜索提供商")
+	}
+
+	results, err := c.Search(ctx, "Apple Inc. 官网", 5)
 	if err != nil {
 		return err
 	}
+	if len(results) < 3 {
+		return fmt.Errorf("搜索结果不足 3 条，请检查搜索提供商或关键词")
+	}
+
+	if c.fetcher == nil {
+		c.fetcher = NewWebFetcher(nil)
+	}
+
+	for i := 0; i < 3; i++ {
+		item := results[i]
+		if strings.TrimSpace(item.URL) == "" {
+			return fmt.Errorf("第 %d 个搜索结果缺少有效链接", i+1)
+		}
+		ctxFetch, cancel := context.WithTimeout(ctx, 20*time.Second)
+		summary, fetchErr := c.fetcher.Fetch(ctxFetch, item.URL)
+		cancel()
+		if fetchErr != nil {
+			return fmt.Errorf("抓取第 %d 个搜索结果失败: %w", i+1, fetchErr)
+		}
+		if summary == nil || strings.TrimSpace(summary.Text) == "" {
+			return fmt.Errorf("第 %d 个搜索结果未解析到网页正文内容", i+1)
+		}
+	}
+
 	return nil
 }
 
