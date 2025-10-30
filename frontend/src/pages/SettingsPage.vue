@@ -1,75 +1,194 @@
 <template>
-  <div class="settings-page">
-    <header class="settings-page__header">
-      <button class="settings-page__back" @click="goBack">返回</button>
-      <h1 class="settings-page__title">全局配置</h1>
-    </header>
-    <section class="settings-page__body">
-      <p class="settings-page__intro">
-        在这里配置 LLM、SMTP、客户评级标准及搜索 API。当前页面为功能骨架，随开发推进将补齐完整表单与交互。
-      </p>
-      <div class="settings-preview" v-if="!loading">
-        <article class="settings-preview__card">
-          <h2>大模型设置</h2>
-          <dl>
-            <div>
-              <dt>Base URL</dt>
-              <dd>{{ sanitized(data.llm_base_url) }}</dd>
-            </div>
-            <div>
-              <dt>模型名称</dt>
-              <dd>{{ sanitized(data.llm_model) }}</dd>
-            </div>
-          </dl>
-          <button class="link-button" @click="settingsStore.testLLM">测试 LLM 连通性</button>
-        </article>
-        <article class="settings-preview__card">
-          <h2>邮件设置</h2>
-          <dl>
-            <div>
-              <dt>SMTP 主机</dt>
-              <dd>{{ sanitized(data.smtp_host) }}</dd>
-            </div>
-            <div>
-              <dt>管理员邮箱</dt>
-              <dd>{{ sanitized(data.admin_email) }}</dd>
-            </div>
-          </dl>
-          <button class="link-button" @click="settingsStore.testSMTP">发送测试邮件</button>
-        </article>
-      </div>
-      <div v-else class="settings-page__loading">正在加载配置...</div>
-      <form class="search-config" @submit.prevent="saveSearchConfig">
-        <h3 class="search-config__title">搜索 API</h3>
-        <p class="search-config__remark">
-          推荐使用 <span>SerpAPI</span>（https://serpapi.com/search-api），成功配置后系统可自动调用真实搜索结果。
-        </p>
-        <div class="search-config__fields">
-          <label class="search-config__field">
-            <span>搜索提供商</span>
-            <select v-model="localSearch.search_provider">
-              <option value="">未配置（直连模式）</option>
-              <option value="serpapi">SerpAPI</option>
-            </select>
-          </label>
-          <label class="search-config__field">
-            <span>API Key</span>
-            <input
-              v-model="localSearch.search_api_key"
-              type="text"
-              placeholder="填入 SerpAPI Key"
-              autocomplete="off"
-            />
-          </label>
+  <div class="settings-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="avatar"></div>
+        <div>
+          <p class="brand-title">AI外贸助手</p>
+          <p class="brand-sub">专业版</p>
         </div>
-        <button class="search-config__submit" type="submit" :disabled="loading">
-          保存搜索配置
+      </div>
+      <nav class="menu">
+        <button class="menu-item">
+          <span class="material">dashboard</span>
+          Dashboard
         </button>
-        <button class="link-button" type="button" @click="settingsStore.testSearch">
-          测试搜索 API
+        <button class="menu-item">
+          <span class="material">group</span>
+          客户管理
         </button>
+        <button class="menu-item">
+          <span class="material">mail</span>
+          邮件营销
+        </button>
+        <button class="menu-item">
+          <span class="material">bar_chart</span>
+          数据分析
+        </button>
+        <button class="menu-item menu-item--active">
+          <span class="material">settings</span>
+          全局配置
+        </button>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="page-head">
+        <div>
+          <h1>全局配置</h1>
+          <p>配置软件核心参数以确保 AI 助手正常运行。</p>
+        </div>
+        <button class="ghost" type="button" @click="goBack">
+          <span class="material">arrow_back</span>
+          返回
+        </button>
+      </header>
+
+      <form class="form" @submit.prevent="handleSave">
+        <section class="card">
+          <header>
+            <div>
+              <h2>大模型 (LLM) 设置</h2>
+              <p>配置 API 地址与密钥，用于智能分析与内容生成。</p>
+            </div>
+            <button type="button" class="chip" @click="settingsStore.testLLM">
+              <span class="material">bolt</span>
+              测试连接
+            </button>
+          </header>
+          <div class="grid">
+            <label>
+              <span>Base URL</span>
+              <input v-model="local.llm_base_url" type="text" placeholder="https://api.example.com/v1" />
+            </label>
+            <label>
+              <span>API Key</span>
+              <input v-model="local.llm_api_key" type="text" placeholder="sk-..." />
+            </label>
+            <label>
+              <span>模型名称</span>
+              <input v-model="local.llm_model" type="text" placeholder="gpt-4o" />
+            </label>
+          </div>
+        </section>
+
+        <section class="card">
+          <header>
+            <div>
+              <h2>我的信息</h2>
+              <p>这些信息将用于生成开发信签名与公司介绍。</p>
+            </div>
+          </header>
+          <div class="grid">
+            <label>
+              <span>我的公司名称</span>
+              <input v-model="local.my_company_name" type="text" placeholder="例如：环球贸易有限公司" />
+            </label>
+          </div>
+          <label>
+            <span>我的产品 / 服务简介</span>
+            <textarea
+              v-model="local.my_product_profile"
+              rows="4"
+              placeholder="详细描述您的核心产品、优势和主要目标市场。"
+            ></textarea>
+          </label>
+        </section>
+
+        <section class="card">
+          <header>
+            <div>
+              <h2>邮件发送 (SMTP) 设置</h2>
+              <p>配置用于自动发送跟进邮件的 SMTP 服务器。</p>
+            </div>
+            <button type="button" class="chip" @click="settingsStore.testSMTP">
+              <span class="material">send</span>
+              发送测试邮件
+            </button>
+          </header>
+          <div class="grid">
+            <label>
+              <span>SMTP 服务器</span>
+              <input v-model="local.smtp_host" type="text" placeholder="smtp.example.com" />
+            </label>
+            <label>
+              <span>端口</span>
+              <input v-model.number="local.smtp_port" type="number" placeholder="465" />
+            </label>
+            <label>
+              <span>邮箱账号</span>
+              <input v-model="local.smtp_username" type="text" placeholder="your@email.com" />
+            </label>
+            <label>
+              <span>邮箱密码 / 授权码</span>
+              <input v-model="local.smtp_password" type="password" placeholder="授权码" />
+            </label>
+          </div>
+        </section>
+
+        <section class="grid-two">
+          <div class="card">
+            <header>
+              <div>
+                <h2>系统设置</h2>
+                <p>全局通知与默认管理员设置。</p>
+              </div>
+            </header>
+            <label>
+              <span>管理员邮箱</span>
+              <input v-model="local.admin_email" type="email" placeholder="用于接收系统通知" />
+            </label>
+          </div>
+
+          <div class="card card--stretch">
+            <header>
+              <div>
+                <h2>客户评级标准</h2>
+                <p>以自然语言描述您的 A/B/C 客户定义。</p>
+              </div>
+            </header>
+            <textarea
+              v-model="local.rating_guideline"
+              rows="8"
+              placeholder="例如：
+A级：明确表达采购意向，有具体需求和预算；
+B级：对产品感兴趣，正在评估供应商；
+C级：暂无明确需求，仅收集资料。"
+            ></textarea>
+          </div>
+        </section>
+
+        <section class="card">
+          <header>
+            <div>
+              <h2>搜索 API 设置</h2>
+              <p>配置用于外部情报搜索的 API。</p>
+            </div>
+            <button type="button" class="chip" @click="settingsStore.testSearch">
+              <span class="material">travel_explore</span>
+              测试搜索
+            </button>
+          </header>
+          <div class="grid">
+            <label>
+              <span>搜索提供商</span>
+              <select v-model="local.search_provider">
+                <option value="">未配置（直连模式）</option>
+                <option value="serpapi">SerpAPI</option>
+              </select>
+            </label>
+            <label>
+              <span>API Key</span>
+              <input v-model="local.search_api_key" type="text" placeholder="SerpAPI Key" />
+            </label>
+          </div>
+        </section>
+
+        <footer class="form-footer">
+          <button class="primary" type="submit" :disabled="settingsStore.loading">保存配置</button>
+        </footer>
       </form>
-    </section>
+    </main>
   </div>
 </template>
 
@@ -81,9 +200,20 @@ import { useSettingsStore } from '../stores/settings'
 
 const router = useRouter()
 const settingsStore = useSettingsStore()
-const { data, loading } = storeToRefs(settingsStore)
+const { data } = storeToRefs(settingsStore)
 
-const localSearch = reactive({
+const local = reactive({
+  llm_base_url: '',
+  llm_api_key: '',
+  llm_model: '',
+  my_company_name: '',
+  my_product_profile: '',
+  smtp_host: '',
+  smtp_port: 465,
+  smtp_username: '',
+  smtp_password: '',
+  admin_email: '',
+  rating_guideline: '',
   search_provider: '',
   search_api_key: '',
 })
@@ -92,26 +222,17 @@ onMounted(() => {
   settingsStore.fetchSettings()
 })
 
-const sanitized = (value) => {
-  if (!value) return '未配置'
-  return value
-}
-
 watch(
   data,
   (value) => {
     if (!value) return
-    localSearch.search_provider = value.search_provider || ''
-    localSearch.search_api_key = value.search_api_key || ''
+    Object.assign(local, value)
   },
   { immediate: true }
 )
 
-const saveSearchConfig = () => {
-  settingsStore.saveSettings({
-    search_provider: localSearch.search_provider,
-    search_api_key: localSearch.search_api_key,
-  })
+const handleSave = () => {
+  settingsStore.saveSettings({ ...local })
 }
 
 const goBack = () => {
@@ -120,163 +241,222 @@ const goBack = () => {
 </script>
 
 <style scoped>
-.settings-page {
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined');
+
+.settings-shell {
   min-height: 100vh;
+  display: flex;
   background: var(--surface-background);
   color: var(--text-primary);
-  padding: 32px 48px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-.settings-page__header {
+.sidebar {
+  width: 240px;
+  background: #ffffff;
+  border-right: 1px solid var(--border-subtle);
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+}
+
+.brand-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.brand-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu-item {
+  border: none;
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: transparent;
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.settings-page__back {
-  border: 1px solid var(--border-subtle);
-  padding: 8px 20px;
-  border-radius: 999px;
-  background: transparent;
+  gap: 8px;
   cursor: pointer;
 }
 
-.settings-page__title {
-  font-size: 26px;
-  font-weight: 600;
+.menu-item--active {
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--accent-color);
 }
 
-.settings-page__intro {
-  max-width: 540px;
-  color: var(--text-secondary);
-  line-height: 1.6;
+.material {
+  font-family: 'Material Symbols Outlined';
+  font-size: 20px;
+  display: inline-flex;
 }
 
-.settings-preview {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 20px;
-  margin-top: 32px;
-}
-
-.settings-preview__card {
-  background: var(--surface-elevated);
-  border-radius: 16px;
-  padding: 20px 24px;
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.04);
-}
-
-.settings-preview__card h2 {
-  margin-top: 0;
-  margin-bottom: 16px;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.settings-preview__card dl {
-  display: grid;
-  row-gap: 12px;
-  column-gap: 12px;
-  margin: 0;
-}
-
-.settings-preview__card dt {
-  font-size: 13px;
-  color: var(--text-tertiary);
-}
-
-.settings-preview__card dd {
-  margin: 4px 0 0;
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-
-.settings-page__loading {
-  margin-top: 32px;
-  color: var(--text-tertiary);
-}
-
-.search-config {
-  margin-top: 40px;
-  background: var(--surface-elevated);
-  border-radius: 18px;
-  padding: 24px;
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.06);
+.main {
+  flex: 1;
+  padding: 48px 64px;
   display: flex;
   flex-direction: column;
+  gap: 32px;
+}
+
+.page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.page-head h1 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 800;
+}
+
+.page-head p {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+}
+
+.ghost {
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  border-radius: 999px;
+  padding: 8px 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 28px 32px;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   gap: 16px;
 }
 
-.search-config__title {
+.card h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
 }
 
-.search-config__remark {
-  margin: 0;
-  font-size: 14px;
+.card p {
+  margin: 6px 0 0;
   color: var(--text-secondary);
+  font-size: 14px;
 }
 
-.search-config__remark span {
-  color: var(--accent-color);
-  font-weight: 600;
-}
-
-.search-config__fields {
+.grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
 }
 
-.search-config__field {
+.grid-two {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+.card--stretch {
+  display: flex;
+  flex-direction: column;
+}
+
+label {
   display: flex;
   flex-direction: column;
   gap: 8px;
   font-size: 14px;
-  color: var(--text-secondary);
 }
 
-.search-config__field select,
-.search-config__field input {
+input,
+textarea,
+select {
   padding: 12px 14px;
-  border-radius: 12px;
+  border-radius: 14px;
   border: 1px solid var(--border-subtle);
   background: var(--surface-muted);
   font-size: 14px;
 }
 
-.search-config__submit {
-  align-self: flex-start;
+textarea {
+  resize: vertical;
+}
+
+select {
+  appearance: none;
+}
+
+.chip {
   border: none;
   border-radius: 999px;
+  padding: 10px 18px;
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--accent-color);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.form-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+button.primary {
+  border: none;
+  border-radius: 12px;
   padding: 12px 28px;
   background: linear-gradient(135deg, #2563eb, #1d4ed8);
   color: #fff;
-  font-weight: 600;
+  font-size: 14px;
   cursor: pointer;
   transition: opacity 0.2s ease;
 }
 
-.search-config__submit:disabled {
+button.primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.link-button {
-  margin-top: 12px;
-  background: none;
-  border: none;
-  color: var(--accent-color);
-  cursor: pointer;
-  padding: 0;
-  font-size: 14px;
-  text-align: left;
-}
-
-.link-button:hover {
-  text-decoration: underline;
 }
 </style>

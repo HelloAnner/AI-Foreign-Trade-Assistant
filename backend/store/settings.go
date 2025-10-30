@@ -27,10 +27,20 @@ type Settings struct {
 // GetSettings fetches the single settings row.
 func (s *Store) GetSettings(ctx context.Context) (*Settings, error) {
 	row := s.DB.QueryRowContext(ctx, `
-		SELECT llm_base_url, llm_api_key, llm_model,
-		       my_company_name, my_product_profile,
-		       smtp_host, smtp_port, smtp_username, smtp_password,
-		       admin_email, rating_guideline, search_provider, search_api_key
+		SELECT
+		  COALESCE(llm_base_url, ''),
+		  COALESCE(llm_api_key, ''),
+		  COALESCE(llm_model, ''),
+		  COALESCE(my_company_name, ''),
+		  COALESCE(my_product_profile, ''),
+		  COALESCE(smtp_host, ''),
+		  COALESCE(smtp_port, 0),
+		  COALESCE(smtp_username, ''),
+		  COALESCE(smtp_password, ''),
+		  COALESCE(admin_email, ''),
+		  COALESCE(rating_guideline, ''),
+		  COALESCE(search_provider, ''),
+		  COALESCE(search_api_key, '')
 		FROM settings WHERE id = 1;
 	`)
 	var settings Settings
