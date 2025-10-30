@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -46,6 +47,7 @@ func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]S
 	if c == nil || c.store == nil {
 		return nil, fmt.Errorf("search client not initialized")
 	}
+	log.Printf("[search] query=\"%s\" limit=%d status=started", truncateForLog(query, 60), limit)
 	if limit <= 0 {
 		limit = 5
 	}
@@ -60,14 +62,23 @@ func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]S
 
 	switch provider {
 	case "bing":
-		return c.searchBing(ctx, query, limit, apiKey)
+		results, err := c.searchBing(ctx, query, limit, apiKey)
+		log.Printf("[search] provider=bing results=%d error=%v", len(results), err)
+		return results, err
 	case "serpapi":
-		return c.searchSerpAPI(ctx, query, limit, apiKey)
+		results, err := c.searchSerpAPI(ctx, query, limit, apiKey)
+		log.Printf("[search] provider=serpapi results=%d error=%v", len(results), err)
+		return results, err
 	case "ddg", "duckduckgo":
-		return c.searchDuckDuckGo(ctx, query, limit)
+		results, err := c.searchDuckDuckGo(ctx, query, limit)
+		log.Printf("[search] provider=duckduckgo results=%d error=%v", len(results), err)
+		return results, err
 	case "":
-		return directMode(query), nil
+		results := directMode(query)
+		log.Printf("[search] provider=direct results=%d", len(results))
+		return results, nil
 	default:
+		log.Printf("[search] provider=%s status=unsupported", provider)
 		return nil, fmt.Errorf("暂不支持的搜索提供商: %s", provider)
 	}
 }
@@ -116,6 +127,15 @@ func (c *SearchClient) TestSearch(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func truncateForLog(input string, limit int) string {
+	trimmed := strings.TrimSpace(input)
+	if len([]rune(trimmed)) <= limit {
+		return trimmed
+	}
+	runes := []rune(trimmed)
+	return string(runes[:limit]) + "..."
 }
 
 func (c *SearchClient) searchBing(ctx context.Context, query string, limit int, apiKey string) ([]SearchItem, error) {

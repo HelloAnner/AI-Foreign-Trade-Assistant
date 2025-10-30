@@ -14,8 +14,8 @@
           type="text"
           placeholder="输入客户公司全名或官网地址"
         />
-        <button class="primary" :disabled="!queryText || flowStore.resolving" @click="handleResolve">
-          {{ flowStore.resolving ? '分析中…' : '开始分析' }}
+        <button :class="hasResult && !flowStore.resolving ? 'success' : 'primary'" :disabled="actionDisabled" @click="handleAction">
+          {{ buttonLabel }}
         </button>
       </div>
 
@@ -110,6 +110,20 @@ const companyForm = ref({
 const contactsLocal = ref([])
 
 const candidateList = computed(() => flowStore.resolveResult?.candidates || [])
+const hasResult = computed(() => Boolean(flowStore.resolveResult))
+
+const buttonLabel = computed(() => {
+  if (flowStore.resolving) return '分析中…'
+  return hasResult.value ? '下一步' : '开始分析'
+})
+
+const actionDisabled = computed(() => {
+  if (flowStore.resolving) return true
+  if (hasResult.value) {
+    return !companyForm.value.name
+  }
+  return !queryText.value
+})
 
 watch(
   () => flowStore.resolveResult,
@@ -143,14 +157,25 @@ watch(
   }
 )
 
-const handleResolve = () => {
-  flowStore.startResolve(queryText.value)
+const handleResolve = async () => {
+  if (!queryText.value || flowStore.resolving) return
+  await flowStore.startResolve(queryText.value)
 }
 
 const handleSave = async () => {
+  if (!companyForm.value.name) return
   flowStore.contacts = contactsLocal.value.map((item) => ({ ...item }))
   await flowStore.saveCompany({ ...companyForm.value })
   nav.goNext?.()
+}
+
+const handleAction = async () => {
+  if (flowStore.resolving) return
+  if (hasResult.value) {
+    await handleSave()
+  } else {
+    await handleResolve()
+  }
 }
 
 const syncContacts = () => {
@@ -249,6 +274,16 @@ button.primary {
 }
 
 button.primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button.success {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #fff;
+}
+
+button.success:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

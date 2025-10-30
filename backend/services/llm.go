@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -119,6 +120,7 @@ func (c *LLMClient) Chat(ctx context.Context, messages []ChatMessage, opts ChatO
 	if err != nil {
 		return "", nil, err
 	}
+	log.Printf("[llm] model=%s messages=%d status=started", settings.LLMModel, len(messages))
 
 	if len(messages) == 0 {
 		return "", nil, fmt.Errorf("至少需要一条对话消息")
@@ -175,6 +177,7 @@ func (c *LLMClient) Chat(ctx context.Context, messages []ChatMessage, opts ChatO
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		log.Printf("[llm] model=%s status=failed error=%v", settings.LLMModel, err)
 		return "", nil, fmt.Errorf("无法连接到 LLM 服务: %w", err)
 	}
 	defer resp.Body.Close()
@@ -199,10 +202,13 @@ func (c *LLMClient) Chat(ctx context.Context, messages []ChatMessage, opts ChatO
 	}
 
 	if len(parsed.Choices) == 0 {
+		log.Printf("[llm] model=%s status=empty-response", settings.LLMModel)
 		return "", &parsed.Usage, fmt.Errorf("LLM 未返回任何内容")
 	}
 
-	return strings.TrimSpace(parsed.Choices[0].Message.Content), &parsed.Usage, nil
+	content := strings.TrimSpace(parsed.Choices[0].Message.Content)
+	log.Printf("[llm] model=%s status=completed total_tokens=%d", settings.LLMModel, parsed.Usage.TotalTokens)
+	return content, &parsed.Usage, nil
 }
 
 // Usage represents token usage stats from LLM responses.
