@@ -1,0 +1,68 @@
+<template>
+  <div class="app-shell">
+    <RouterView />
+    <transition-group name="toast" tag="div" class="toast-stack">
+      <div
+        v-for="toast in toasts"
+        :key="toast.id"
+        class="toast"
+        :class="`toast--${toast.tone}`"
+      >
+        {{ toast.message }}
+      </div>
+    </transition-group>
+  </div>
+</template>
+
+<script setup>
+import { storeToRefs } from 'pinia'
+import { useUiStore } from './stores/ui'
+
+const uiStore = useUiStore()
+const { toasts } = storeToRefs(uiStore)
+</script>
+
+<style scoped>
+.app-shell {
+  min-height: 100vh;
+}
+
+.toast-stack {
+  position: fixed;
+  inset-inline-end: 24px;
+  inset-block-end: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 60;
+}
+
+.toast {
+  min-width: 260px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fff;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.25);
+}
+
+.toast--success {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+
+.toast--error {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: all 0.25s ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(12px);
+}
+</style>
