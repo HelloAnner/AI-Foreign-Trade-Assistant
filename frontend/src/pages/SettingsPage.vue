@@ -9,9 +9,9 @@
         </div>
       </div>
       <nav class="menu">
-        <button class="menu-item">
-          <span class="material">dashboard</span>
-          Dashboard
+        <button class="menu-item" type="button" @click="goHome">
+          <span class="material">search</span>
+          客户开发
         </button>
         <button class="menu-item">
           <span class="material">group</span>
@@ -276,8 +276,12 @@ const handleTestSearch = async () => {
   await settingsStore.testSearch()
 }
 
-const goBack = () => {
+const goHome = () => {
   router.push({ name: 'home' })
+}
+
+const goBack = () => {
+  goHome()
 }
 </script>
 

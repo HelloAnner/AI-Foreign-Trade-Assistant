@@ -9,23 +9,33 @@
         </div>
       </div>
       <nav class="menu">
-        <button class="menu-item menu-item--active">
+        <button
+          type="button"
+          class="menu-item"
+          :class="{ 'menu-item--active': isActive('home') }"
+          @click="goRoute('home')"
+        >
           <span class="material">search</span>
           客户开发
         </button>
-        <button class="menu-item">
+        <button class="menu-item" type="button" disabled>
           <span class="material">group</span>
           客户管理
         </button>
-        <button class="menu-item">
+        <button class="menu-item" type="button" disabled>
           <span class="material">mail</span>
           邮件营销
         </button>
-        <button class="menu-item">
+        <button class="menu-item" type="button" disabled>
           <span class="material">bar_chart</span>
           数据分析
         </button>
-        <button class="menu-item">
+        <button
+          type="button"
+          class="menu-item"
+          :class="{ 'menu-item--active': isActive('settings') }"
+          @click="goRoute('settings')"
+        >
           <span class="material">settings</span>
           全局配置
         </button>
@@ -59,6 +69,8 @@
 </template>
 
 <script setup>
+import { useRouter, useRoute } from 'vue-router'
+
 const props = defineProps({
   step: { type: Number, default: 1 },
   total: { type: Number, default: 5 },
@@ -66,6 +78,16 @@ const props = defineProps({
   subtitle: { type: String, default: '' },
   progress: { type: Number, default: 0 },
 })
+
+const router = useRouter()
+const route = useRoute()
+
+const goRoute = (name) => {
+  if (!name || route.name === name) return
+  router.push({ name })
+}
+
+const isActive = (name) => route.name === name
 </script>
 
 <style scoped>
@@ -135,6 +157,11 @@ const props = defineProps({
 .menu-item--active {
   background: rgba(37, 99, 235, 0.12);
   color: var(--accent-color);
+}
+
+.menu-item[disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .material {
