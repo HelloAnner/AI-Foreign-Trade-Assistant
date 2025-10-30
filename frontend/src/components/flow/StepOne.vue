@@ -111,14 +111,24 @@ const contactsLocal = ref([])
 
 const candidateList = computed(() => flowStore.resolveResult?.candidates || [])
 const hasResult = computed(() => Boolean(flowStore.resolveResult))
+const queryChanged = computed(() => {
+  if (!hasResult.value) return false
+  const current = (queryText.value || '').trim()
+  const original = (flowStore.query || '').trim()
+  return current !== original
+})
 
 const buttonLabel = computed(() => {
   if (flowStore.resolving) return '分析中…'
+  if (queryChanged.value) return '开始分析'
   return hasResult.value ? '下一步' : '开始分析'
 })
 
 const actionDisabled = computed(() => {
   if (flowStore.resolving) return true
+  if (queryChanged.value) {
+    return !queryText.value
+  }
   if (hasResult.value) {
     return !companyForm.value.name
   }
@@ -171,10 +181,10 @@ const handleSave = async () => {
 
 const handleAction = async () => {
   if (flowStore.resolving) return
-  if (hasResult.value) {
-    await handleSave()
-  } else {
+  if (queryChanged.value || !hasResult.value) {
     await handleResolve()
+  } else {
+    await handleSave()
   }
 }
 

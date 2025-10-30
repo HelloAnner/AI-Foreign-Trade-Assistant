@@ -7,13 +7,14 @@ import (
 )
 
 const (
-	AppDirName      = "foreign_trade"
-	ConfigFileName  = "config.json"
-	DatabaseFile    = "app.db"
-	LogDirName      = "logs"
-	CacheDirName    = "cache"
-	ExportsDirName  = "exports"
-	DefaultHTTPAddr = "127.0.0.1:7860"
+	AppDirName       = ".foreign_trade"
+	legacyAppDirName = "foreign_trade"
+	ConfigFileName   = "config.json"
+	DatabaseFile     = "app.db"
+	LogDirName       = "logs"
+	CacheDirName     = "cache"
+	ExportsDirName   = "exports"
+	DefaultHTTPAddr  = "127.0.0.1:7860"
 )
 
 // Paths keeps resolved filesystem locations the app relies on.
@@ -46,6 +47,17 @@ func ResolvePaths(homeDir string) (*Paths, error) {
 func Ensure(paths *Paths) error {
 	if paths == nil {
 		return fmt.Errorf("paths is nil")
+	}
+
+	// Attempt to migrate legacy directory if present.
+	if _, err := os.Stat(paths.RootDir); os.IsNotExist(err) {
+		parent := filepath.Dir(paths.RootDir)
+		legacyRoot := filepath.Join(parent, legacyAppDirName)
+		if info, legacyErr := os.Stat(legacyRoot); legacyErr == nil && info.IsDir() {
+			if renameErr := os.Rename(legacyRoot, paths.RootDir); renameErr != nil {
+				// fallback to creating fresh structure below
+			}
+		}
 	}
 
 	dirs := []string{

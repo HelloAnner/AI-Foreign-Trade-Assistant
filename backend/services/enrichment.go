@@ -123,7 +123,13 @@ func (s *EnrichmentServiceImpl) ResolveCompany(ctx context.Context, req *domain.
 		})
 	}
 
+	name := ""
+	if !looksURL {
+		name = query
+	}
+
 	return &domain.ResolveCompanyResponse{
+		Name:       name,
 		Website:    parsed.Website,
 		Country:    parsed.Country,
 		Contacts:   contacts,

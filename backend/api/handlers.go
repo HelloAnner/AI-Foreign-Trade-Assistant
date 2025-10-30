@@ -1,10 +1,13 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -94,10 +97,80 @@ func (h *Handlers) ResolveCompany(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
 		return
 	}
+
+	existing, contacts, err := h.Store.FindCustomerByQuery(r.Context(), req.Query)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
+		return
+	}
+	if existing != nil {
+		response := domain.ResolveCompanyResponse{
+			CustomerID:  existing.ID,
+			Name:        existing.Name,
+			Website:     existing.Website,
+			Country:     existing.Country,
+			Contacts:    contacts,
+			Summary:     existing.Summary,
+			Grade:       strings.ToUpper(strings.TrimSpace(existing.Grade)),
+			GradeReason: existing.GradeReason,
+		}
+
+		lastStep := 1
+		if response.Grade != "" && response.Grade != "UNKNOWN" {
+			lastStep = maxInt(lastStep, 2)
+			if response.Grade != "A" {
+				lastStep = maxInt(lastStep, 5)
+			}
+		}
+
+		if analysis, err := h.Store.GetLatestAnalysis(r.Context(), existing.ID); err == nil {
+			response.Analysis = analysis
+			lastStep = maxInt(lastStep, 4)
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
+			return
+		}
+
+		if emailDraft, err := h.Store.GetLatestEmailDraft(r.Context(), existing.ID, "initial"); err == nil {
+			response.EmailDraft = emailDraft
+			lastStep = maxInt(lastStep, 5)
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
+			return
+		}
+
+		if followupID, err := h.Store.GetLatestFollowupID(r.Context(), existing.ID); err == nil && followupID > 0 {
+			response.FollowupID = followupID
+			lastStep = maxInt(lastStep, 5)
+		} else if err != nil {
+			writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
+			return
+		}
+
+		if task, err := h.Store.GetLatestScheduledTask(r.Context(), existing.ID); err == nil && task != nil {
+			response.ScheduledTask = task
+			lastStep = maxInt(lastStep, 5)
+		} else if err != nil {
+			writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
+			return
+		}
+
+		if lastStep <= 0 {
+			lastStep = 1
+		}
+		response.LastStep = lastStep
+		writeJSON(w, http.StatusOK, Response{OK: true, Data: response})
+		return
+	}
+
 	result, err := h.ServiceBundle.Enricher.ResolveCompany(r.Context(), &req)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
 		return
+	}
+	trimmed := strings.TrimSpace(req.Query)
+	if result != nil && result.Name == "" && trimmed != "" {
+		result.Name = trimmed
 	}
 	writeJSON(w, http.StatusOK, Response{OK: true, Data: result})
 }
@@ -115,6 +188,25 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, Response{OK: true, Data: map[string]int64{"customer_id": id}})
+}
+
+// UpdateCompany updates Step 1 information for an existing customer.
+func (h *Handlers) UpdateCompany(w http.ResponseWriter, r *http.Request) {
+	customerID, err := parseID(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	var req domain.CreateCompanyRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	if err := h.Store.UpdateCustomer(r.Context(), customerID, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: map[string]int64{"customer_id": customerID}})
 }
 
 // ReplaceContacts stores user-edited contacts for a customer.
@@ -299,6 +391,13 @@ func (h *Handlers) RunTaskNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, Response{OK: true})
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func decodeJSON(r *http.Request, v interface{}) error {

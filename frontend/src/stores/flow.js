@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import {
   resolveCompany,
   createCompany,
+  updateCompany,
   replaceContacts,
   suggestGrade,
   confirmGrade,
@@ -64,45 +65,88 @@ export const useFlowStore = defineStore('flow', {
         schedule: false,
       }
     },
-    async startResolve(query) {
-      const ui = useUiStore()
-      this.resolving = true
-      this.query = query
-      try {
-        const payload = await resolveCompany(query)
-        this.resolveResult = payload.data
-        this.contacts = payload.data?.contacts || []
-        this.summary = payload.data?.summary || ''
-        this.country = payload.data?.country || ''
-        this.website = payload.data?.website || ''
+  async startResolve(query) {
+    const ui = useUiStore()
+    this.resolving = true
+    this.query = query
+    try {
+      const payload = await resolveCompany(query)
+      const data = payload.data || {}
+      this.resolveResult = data
+      this.contacts = (data.contacts || []).map((item) => ({ ...item }))
+      this.summary = data.summary || ''
+      this.country = data.country || ''
+      this.website = data.website || ''
+
+      if (data.customer_id) {
+        this.customerId = data.customer_id
+        const normalizedGrade = (data.grade || '').toUpperCase()
+        if (normalizedGrade && normalizedGrade !== 'UNKNOWN') {
+          this.gradeFinal = {
+            grade: normalizedGrade,
+            reason: data.grade_reason || '',
+          }
+        } else {
+          this.gradeFinal = null
+        }
+        this.analysis = data.analysis ? { ...data.analysis } : null
+        this.emailDraft = data.email_draft ? { ...data.email_draft } : null
+        this.followupId = data.followup_id || null
+        this.scheduledTask = data.scheduled_task || null
+        this.step = Math.max(1, data.last_step || 1)
+      } else {
+        this.customerId = null
+        this.gradeFinal = null
+        this.analysis = null
+        this.emailDraft = null
+        this.followupId = null
+        this.scheduledTask = null
         this.step = 1
-      } catch (error) {
-        ui.pushToast(error.message, 'error')
-      } finally {
-        this.resolving = false
       }
+      this.gradeSuggestion = null
+    } catch (error) {
+      ui.pushToast(error.message, 'error')
+    } finally {
+      this.resolving = false
+    }
     },
-    async saveCompany(company) {
-      const ui = useUiStore()
-      try {
-        const payload = await createCompany({
-          name: company.name,
-          website: company.website || this.website,
-          country: company.country || this.country,
-          summary: company.summary || this.summary,
-          contacts: this.contacts,
-          source_json: this.resolveResult || {},
-        })
-        this.customerId = payload.data.customer_id
-        this.website = company.website || this.website
-        this.country = company.country || this.country
-        this.summary = company.summary || this.summary
-        this.step = 2
+  async saveCompany(company) {
+    const ui = useUiStore()
+    const payload = {
+      name: company.name,
+      website: company.website || this.website,
+      country: company.country || this.country,
+      summary: company.summary || this.summary,
+      contacts: this.contacts,
+      source_json: this.resolveResult || {},
+    }
+    try {
+      if (this.customerId) {
+        await updateCompany(this.customerId, payload)
+        ui.pushToast('客户信息已更新', 'success')
+      } else {
+        const response = await createCompany(payload)
+        this.customerId = response.data.customer_id
         ui.pushToast('客户信息已保存', 'success')
-      } catch (error) {
-        ui.pushToast(error.message, 'error')
       }
-    },
+      this.website = payload.website
+      this.country = payload.country
+      this.summary = payload.summary
+      this.step = Math.max(this.step, 2)
+      this.resolveResult = {
+        ...(this.resolveResult && typeof this.resolveResult === 'object' ? this.resolveResult : {}),
+        customer_id: this.customerId,
+        name: payload.name,
+        website: payload.website,
+        country: payload.country,
+        summary: payload.summary,
+        contacts: (payload.contacts || []).map((item) => ({ ...item })),
+        last_step: Math.max(this.step, 2),
+      }
+    } catch (error) {
+      ui.pushToast(error.message, 'error')
+    }
+  },
     async updateContacts(contacts) {
       const ui = useUiStore()
       this.contacts = contacts

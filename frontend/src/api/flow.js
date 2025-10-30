@@ -10,6 +10,11 @@ export const createCompany = async (payload) => {
   return data
 }
 
+export const updateCompany = async (customerId, payload) => {
+  const { data } = await http.put(`/companies/${customerId}`, payload)
+  return data
+}
+
 export const replaceContacts = async (customerId, contacts) => {
   const { data } = await http.post(`/companies/${customerId}/contacts`, {
     contacts,

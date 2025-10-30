@@ -11,6 +11,73 @@ import (
 	"github.com/anner/ai-foreign-trade-assistant/backend/domain"
 )
 
+// FindCustomerByQuery attempts to match an existing customer by name or website.
+func (s *Store) FindCustomerByQuery(ctx context.Context, query string) (*domain.Customer, []domain.Contact, error) {
+	if s == nil || s.DB == nil {
+		return nil, nil, fmt.Errorf("store not initialized")
+	}
+	needle := strings.TrimSpace(query)
+	if needle == "" {
+		return nil, nil, nil
+	}
+
+	lowerNeedle := strings.ToLower(needle)
+	var (
+		customer domain.Customer
+		source   sql.NullString
+	)
+
+	scan := func(condition string, args ...any) error {
+		row := s.DB.QueryRowContext(ctx, `
+			SELECT id, name, website, country, grade, grade_reason, summary, source_json, created_at, updated_at
+			FROM customers
+			WHERE `+condition+`
+			ORDER BY updated_at DESC
+			LIMIT 1
+		`, args...)
+		return row.Scan(
+			&customer.ID,
+			&customer.Name,
+			&customer.Website,
+			&customer.Country,
+			&customer.Grade,
+			&customer.GradeReason,
+			&customer.Summary,
+			&source,
+			&customer.CreatedAt,
+			&customer.UpdatedAt,
+		)
+	}
+
+	var err error
+	err = scan("lower(name) = ?", lowerNeedle)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = scan("lower(website) = ?", lowerNeedle)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		normalized := normalizeWebsiteForCompare(needle)
+		if normalized != "" {
+			err = scan("lower(rtrim(replace(replace(replace(website, 'https://', ''), 'http://', ''), 'www.', ''), '/')) = ?", normalized)
+		}
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if source.Valid {
+		customer.SourceJSON = json.RawMessage(source.String)
+	}
+
+	contacts, err := s.ListContacts(ctx, customer.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &customer, contacts, nil
+}
+
 // CreateCustomer inserts a new customer with associated contacts.
 func (s *Store) CreateCustomer(ctx context.Context, req *domain.CreateCompanyRequest) (int64, error) {
 	if s == nil || s.DB == nil {
@@ -59,6 +126,54 @@ func (s *Store) CreateCustomer(ctx context.Context, req *domain.CreateCompanyReq
 		return 0, err
 	}
 	return customerID, nil
+}
+
+// UpdateCustomer updates persisted company info and contacts.
+func (s *Store) UpdateCustomer(ctx context.Context, customerID int64, req *domain.CreateCompanyRequest) error {
+	if s == nil || s.DB == nil {
+		return fmt.Errorf("store not initialized")
+	}
+	if customerID <= 0 {
+		return fmt.Errorf("invalid customer id")
+	}
+	if req == nil {
+		return fmt.Errorf("payload is nil")
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return fmt.Errorf("客户名称不能为空")
+	}
+
+	source := req.SourceJSON
+	if len(source) == 0 {
+		source = []byte("{}")
+	}
+
+	now := Now()
+	return s.WithTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE customers
+             SET name = ?, website = ?, country = ?, summary = ?, source_json = ?, updated_at = ?
+             WHERE id = ?`,
+			req.Name,
+			req.Website,
+			req.Country,
+			req.Summary,
+			string(source),
+			now,
+			customerID,
+		)
+		if err != nil {
+			return fmt.Errorf("更新客户失败: %w", err)
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			return fmt.Errorf("客户不存在或未更新")
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM contacts WHERE customer_id = ?`, customerID); err != nil {
+			return fmt.Errorf("清理旧联系人失败: %w", err)
+		}
+		return insertContactsTx(ctx, tx, customerID, req.Contacts)
+	})
 }
 
 // ReplaceContacts rewrites the contacts for a customer.
@@ -210,9 +325,32 @@ func (s *Store) GetLatestAnalysis(ctx context.Context, customerID int64) (*domai
 	var resp domain.AnalysisResponse
 	if err := row.Scan(&resp.AnalysisID, &resp.CoreBusiness, &resp.PainPoints, &resp.MyEntryPoints, &resp.FullReport); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("尚未生成切入点分析")
+			return nil, fmt.Errorf("尚未生成切入点分析: %w", sql.ErrNoRows)
 		}
 		return nil, fmt.Errorf("查询分析报告失败: %w", err)
+	}
+	return &resp, nil
+}
+
+// GetLatestEmailDraft returns the newest email draft of the specified type.
+func (s *Store) GetLatestEmailDraft(ctx context.Context, customerID int64, emailType string) (*domain.EmailDraftResponse, error) {
+	if s == nil || s.DB == nil {
+		return nil, fmt.Errorf("store not initialized")
+	}
+	if emailType == "" {
+		emailType = "initial"
+	}
+	row := s.DB.QueryRowContext(ctx,
+		`SELECT id, subject, body FROM emails WHERE customer_id = ? AND type = ? ORDER BY id DESC LIMIT 1`,
+		customerID,
+		emailType,
+	)
+	var resp domain.EmailDraftResponse
+	if err := row.Scan(&resp.EmailID, &resp.Subject, &resp.Body); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("未找到邮件草稿: %w", sql.ErrNoRows)
+		}
+		return nil, fmt.Errorf("查询邮件草稿失败: %w", err)
 	}
 	return &resp, nil
 }
@@ -310,6 +448,28 @@ func (s *Store) SaveInitialFollowup(ctx context.Context, customerID int64, email
 	return followupID, nil
 }
 
+// GetLatestFollowupID fetches the most recent follow-up record id for a customer.
+func (s *Store) GetLatestFollowupID(ctx context.Context, customerID int64) (int64, error) {
+	if s == nil || s.DB == nil {
+		return 0, fmt.Errorf("store not initialized")
+	}
+	if customerID <= 0 {
+		return 0, fmt.Errorf("invalid customer id")
+	}
+	row := s.DB.QueryRowContext(ctx,
+		`SELECT id FROM followups WHERE customer_id = ? ORDER BY id DESC LIMIT 1`,
+		customerID,
+	)
+	var id int64
+	if err := row.Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("查询跟进记录失败: %w", err)
+	}
+	return id, nil
+}
+
 // insertContactsTx inserts contacts within an existing transaction.
 func insertContactsTx(ctx context.Context, tx *sql.Tx, customerID int64, contacts []domain.Contact) error {
 	if len(contacts) == 0 {
@@ -341,4 +501,15 @@ func insertContactsTx(ctx context.Context, tx *sql.Tx, customerID int64, contact
 		}
 	}
 	return nil
+}
+
+func normalizeWebsiteForCompare(input string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(input))
+	if trimmed == "" {
+		return ""
+	}
+	trimmed = strings.TrimPrefix(trimmed, "https://")
+	trimmed = strings.TrimPrefix(trimmed, "http://")
+	trimmed = strings.TrimPrefix(trimmed, "www.")
+	return strings.TrimSuffix(trimmed, "/")
 }

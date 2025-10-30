@@ -35,6 +35,54 @@ func (s *Store) CreateScheduledTask(ctx context.Context, customerID, contextEmai
 	return id, nil
 }
 
+// GetLatestScheduledTask returns the most recently updated scheduled task for a customer.
+func (s *Store) GetLatestScheduledTask(ctx context.Context, customerID int64) (*domain.ScheduledTask, error) {
+	if s == nil || s.DB == nil {
+		return nil, fmt.Errorf("store not initialized")
+	}
+	if customerID <= 0 {
+		return nil, fmt.Errorf("invalid customer id")
+	}
+	row := s.DB.QueryRowContext(ctx,
+		`SELECT id, customer_id, due_at, status, last_error, context_email_id, generated_email_id, created_at, updated_at
+         FROM scheduled_tasks
+         WHERE customer_id = ?
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+		customerID,
+	)
+	var (
+		task      domain.ScheduledTask
+		dueAt     string
+		lastErr   sql.NullString
+		generated sql.NullInt64
+	)
+	if err := row.Scan(
+		&task.ID,
+		&task.CustomerID,
+		&dueAt,
+		&task.Status,
+		&lastErr,
+		&task.ContextEmailID,
+		&generated,
+		&task.CreatedAt,
+		&task.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("查询自动跟进任务失败: %w", err)
+	}
+	task.DueAt = dueAt
+	if lastErr.Valid {
+		task.LastError = lastErr.String
+	}
+	if generated.Valid {
+		task.GeneratedEmailID = generated.Int64
+	}
+	return &task, nil
+}
+
 // ListScheduledTasks retrieves tasks filtered by status.
 func (s *Store) ListScheduledTasks(ctx context.Context, status string) ([]domain.ScheduledTask, error) {
 	if s == nil || s.DB == nil {

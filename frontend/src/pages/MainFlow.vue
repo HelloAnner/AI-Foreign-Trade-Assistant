@@ -81,18 +81,28 @@ function goPrev() {
   if (activeIndex.value === 0) return
   direction.value = 'backward'
   activeIndex.value -= 1
+  syncStoreStep()
 }
 
 function goNext() {
   if (!canGoNext.value) return
   direction.value = 'forward'
   activeIndex.value += 1
+  syncStoreStep()
 }
 
 function goTo(index) {
   if (index > unlockIndex.value) return
   direction.value = index > activeIndex.value ? 'forward' : 'backward'
   activeIndex.value = index
+  syncStoreStep()
+}
+
+function syncStoreStep() {
+  const current = activeIndex.value + 1
+  if (current > flowStore.step) {
+    flowStore.step = current
+  }
 }
 
 const goSettings = () => {
