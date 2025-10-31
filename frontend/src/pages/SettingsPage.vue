@@ -19,7 +19,7 @@
           </label>
           <label>
             <span>API Key</span>
-            <input v-model="local.llm_api_key" type="text" placeholder="sk-…" />
+            <input v-model="local.llm_api_key" type="password" placeholder="••••••" />
           </label>
           <label>
             <span>模型名称</span>
@@ -77,7 +77,7 @@
           </label>
           <label>
             <span>邮箱密码 / 授权码</span>
-            <input v-model="local.smtp_password" type="password" placeholder="授权码" />
+            <input v-model="local.smtp_password" type="password" placeholder="••••••" />
           </label>
         </div>
       </section>
@@ -135,15 +135,51 @@ C级：暂无明确需求，仅收集资料。"
           </label>
           <label>
             <span>API Key</span>
-            <input v-model="local.search_api_key" type="text" placeholder="SerpAPI Key" />
+            <input v-model="local.search_api_key" type="password" placeholder="••••••" />
           </label>
         </div>
       </section>
 
+      <section class="card">
+        <header>
+          <div>
+            <h2>自动化分析</h2>
+            <p>如果开启，新增客户的每一步都会自动运行，并按默认配置保存结果。</p>
+          </div>
+          <label class="switch">
+            <input class="switch__input" type="checkbox" v-model="local.automation_enabled" />
+            <span class="switch__slider"></span>
+            <span class="switch__label">自动化分析</span>
+          </label>
+        </header>
+        <transition name="fade">
+          <div v-if="local.automation_enabled" class="automation-grid">
+            <label>
+              <span>默认跟进间隔</span>
+              <select v-model.number="local.automation_followup_days">
+                <option :value="3">3 天</option>
+                <option :value="7">7 天</option>
+                <option :value="14">14 天</option>
+              </select>
+            </label>
+            <label>
+              <span>继续分析的最低评级</span>
+              <select v-model="local.automation_required_grade">
+                <option value="S">S 级</option>
+                <option value="A">A级</option>
+                <option value="B">B级</option>
+              </select>
+            </label>
+          </div>
+        </transition>
+      </section>
+
     </form>
     <template #footer>
-      <button class="ghost" type="button" :disabled="!isDirty" @click="handleReset">取消</button>
-      <button class="primary" type="button" :disabled="settingsStore.loading" @click="handleSave">保存更改</button>
+      <div class="form-actions">
+        <button class="ghost" type="button" :disabled="!isDirty" @click="handleReset">取消</button>
+        <button class="primary" type="button" :disabled="settingsStore.loading" @click="handleSave">保存更改</button>
+      </div>
     </template>
   </FlowLayout>
 </template>
@@ -171,6 +207,9 @@ const local = reactive({
   rating_guideline: '',
   search_provider: '',
   search_api_key: '',
+  automation_enabled: false,
+  automation_followup_days: 7,
+  automation_required_grade: 'A',
 })
 
 const fieldKeys = Object.keys(local)
@@ -218,6 +257,10 @@ const handleTestLLM = async () => {
 const handleReset = () => {
   if (data.value) {
     Object.assign(local, data.value)
+  } else {
+    local.automation_enabled = false
+    local.automation_followup_days = 7
+    local.automation_required_grade = 'A'
   }
 }
 

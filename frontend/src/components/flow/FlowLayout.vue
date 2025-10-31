@@ -80,7 +80,7 @@ const route = useRoute()
 const flowNav = inject('flowNav', null)
 
 const navItems = computed(() => [
-  { id: 'dashboard', route: null, icon: 'dashboard', label: 'Dashboard', disabled: true },
+  { id: 'dashboard', route: null, icon: 'dashboard', label: '总览', disabled: true },
   { id: 'home', route: 'home', icon: 'add_circle', label: '新增客户', disabled: false },
   { id: 'customers', route: 'customers', icon: 'group', label: '客户管理', disabled: false },
   { id: 'email', route: null, icon: 'mark_email_unread', label: '邮件营销', disabled: true },

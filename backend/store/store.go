@@ -43,23 +43,26 @@ func (s *Store) InitSchema(ctx context.Context) error {
 	statements := []string{
 		`PRAGMA journal_mode = WAL;`,
 		`CREATE TABLE IF NOT EXISTS settings (
-			id INTEGER PRIMARY KEY CHECK (id = 1),
-			llm_base_url TEXT,
-			llm_api_key TEXT,
-			llm_model TEXT,
-			my_company_name TEXT,
-			my_product_profile TEXT,
-			smtp_host TEXT,
-			smtp_port INTEGER,
-			smtp_username TEXT,
-			smtp_password TEXT,
-			admin_email TEXT,
-			rating_guideline TEXT,
-			search_provider TEXT,
-			search_api_key TEXT,
-			created_at TEXT,
-			updated_at TEXT
-		);`,
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		llm_base_url TEXT,
+		llm_api_key TEXT,
+		llm_model TEXT,
+		my_company_name TEXT,
+		my_product_profile TEXT,
+		smtp_host TEXT,
+		smtp_port INTEGER,
+		smtp_username TEXT,
+		smtp_password TEXT,
+		admin_email TEXT,
+		rating_guideline TEXT,
+		search_provider TEXT,
+		search_api_key TEXT,
+		automation_enabled INTEGER DEFAULT 0,
+		automation_followup_days INTEGER DEFAULT 7,
+		automation_required_grade TEXT DEFAULT 'A',
+		created_at TEXT,
+		updated_at TEXT
+	);`,
 		`INSERT INTO settings (id, created_at, updated_at)
 			SELECT 1, datetime('now'), datetime('now')
 			WHERE NOT EXISTS (SELECT 1 FROM settings WHERE id = 1);`,
@@ -155,6 +158,24 @@ func (s *Store) InitSchema(ctx context.Context) error {
 	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE customers ADD COLUMN summary TEXT`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column name") {
 			return fmt.Errorf("ensure summary column: %w", err)
+		}
+	}
+
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE settings ADD COLUMN automation_enabled INTEGER DEFAULT 0`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure automation_enabled column: %w", err)
+		}
+	}
+
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE settings ADD COLUMN automation_followup_days INTEGER DEFAULT 7`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure automation_followup_days column: %w", err)
+		}
+	}
+
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE settings ADD COLUMN automation_required_grade TEXT DEFAULT 'A'`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure automation_required_grade column: %w", err)
 		}
 	}
 

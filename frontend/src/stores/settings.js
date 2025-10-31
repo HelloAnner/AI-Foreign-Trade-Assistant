@@ -2,25 +2,30 @@ import { defineStore } from 'pinia'
 import { fetchSettings, saveSettings, testLLM, testSMTP, testSearch } from '../api/settings'
 import { useUiStore } from './ui'
 
+const defaultState = () => ({
+  loading: false,
+  data: {
+    llm_base_url: '',
+    llm_api_key: '',
+    llm_model: '',
+    my_company_name: '',
+    my_product_profile: '',
+    smtp_host: '',
+    smtp_port: 465,
+    smtp_username: '',
+    smtp_password: '',
+    admin_email: '',
+    rating_guideline: '',
+    search_provider: '',
+    search_api_key: '',
+    automation_enabled: false,
+    automation_followup_days: 7,
+    automation_required_grade: 'A',
+  },
+})
+
 export const useSettingsStore = defineStore('settings', {
-  state: () => ({
-    loading: false,
-    data: {
-      llm_base_url: '',
-      llm_api_key: '',
-      llm_model: '',
-      my_company_name: '',
-      my_product_profile: '',
-      smtp_host: '',
-      smtp_port: 465,
-      smtp_username: '',
-      smtp_password: '',
-      admin_email: '',
-      rating_guideline: '',
-      search_provider: '',
-      search_api_key: '',
-    },
-  }),
+  state: defaultState,
   actions: {
     async fetchSettings() {
       const ui = useUiStore()
@@ -97,6 +102,9 @@ export const useSettingsStore = defineStore('settings', {
       } catch (error) {
         ui.pushToast(error.message, 'error')
       }
+    },
+    reset() {
+      Object.assign(this.$state, defaultState())
     },
   },
 })
