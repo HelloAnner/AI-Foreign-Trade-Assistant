@@ -20,11 +20,15 @@
         </label>
         <label>
           <span>国家/地区</span>
-          <select v-model="companyForm.country">
-            <option value="">请选择</option>
-            <option v-for="country in countryOptions" :key="country" :value="country">{{ country }}</option>
-          </select>
+          <input v-model="companyForm.country" type="text" list="country-options" placeholder="例如：美国 / United States" />
+          <datalist id="country-options">
+            <option v-for="country in countryOptions" :key="country" :value="country" />
+          </datalist>
         </label>
+      </div>
+      <div class="overview">
+        <span>客户基本信息概述</span>
+        <p>{{ companyOverview }}</p>
       </div>
     </section>
 
@@ -69,7 +73,17 @@ import { useFlowStore } from '../../stores/flow'
 const flowStore = useFlowStore()
 const nav = inject('flowNav', { goNext: () => {} })
 
-const countryOptions = ['美国', '德国', '新加坡', '英国', '日本', '中国', '加拿大']
+const defaultCountries = ['美国', '中国', '加拿大', '德国', '法国', '英国', '日本', '新加坡', '澳大利亚', 'United States', 'Canada', 'Germany', 'France', 'United Kingdom', 'Japan', 'Singapore', 'Australia']
+const countryOptions = computed(() => {
+  const set = new Set(defaultCountries)
+  if (flowStore.resolveResult?.country) {
+    set.add(flowStore.resolveResult.country)
+  }
+  if (companyForm.country) {
+    set.add(companyForm.country)
+  }
+  return Array.from(set)
+})
 
 const companyForm = reactive({
   name: '',
@@ -178,6 +192,12 @@ const nextDisabled = computed(() => {
   return false
 })
 
+const companyOverview = computed(() => {
+  if (companyForm.summary?.trim()) return companyForm.summary.trim()
+  if (flowStore.resolveResult?.summary) return flowStore.resolveResult.summary
+  return '暂无概述，生成分析后将自动补全。'
+})
+
 const handleNext = async () => {
   if (nextDisabled.value) return
   if (!companyForm.name) {
@@ -247,6 +267,30 @@ label {
 
 label.full {
   grid-column: 1 / -1;
+}
+
+.overview {
+  margin-top: 12px;
+  padding: 18px;
+  border-radius: 14px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.overview span {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.overview p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  text-align: left;
+  white-space: pre-wrap;
 }
 
 input,
