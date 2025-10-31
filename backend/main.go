@@ -3,21 +3,25 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/anner/ai-foreign-trade-assistant/backend/api"
 	appconfig "github.com/anner/ai-foreign-trade-assistant/backend/config"
+	"github.com/anner/ai-foreign-trade-assistant/backend/logging"
 	"github.com/anner/ai-foreign-trade-assistant/backend/services"
 	"github.com/anner/ai-foreign-trade-assistant/backend/store"
 	"github.com/anner/ai-foreign-trade-assistant/backend/task"
-	"github.com/anner/ai-foreign-trade-assistant/backend/logging"
 )
 
 //go:embed all:static
@@ -99,7 +103,21 @@ func run(ctx context.Context) error {
 		}
 	}()
 
-	log.Printf("AI 外贸客户开发助手服务已启动，监听 http://%s", server.Addr)
+	displayAddr, err := resolveDisplayAddr(server.Addr)
+	if err != nil {
+		log.Printf("resolve display address: %v", err)
+		displayAddr = server.Addr
+	}
+	displayURL := fmt.Sprintf("http://%s", displayAddr)
+	log.Printf("AI 外贸客户开发助手服务已启动，访问 %s", displayURL)
+
+	if shouldAutoOpenBrowser() {
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			openBrowser(displayURL)
+		}()
+	}
+
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
@@ -112,6 +130,86 @@ func logRequests(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
 	})
+}
+
+func resolveDisplayAddr(addr string) (string, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", err
+	}
+
+	if lanIP, err := firstLANIPv4(); err == nil && lanIP != "" {
+		host = lanIP
+	} else if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+
+	return net.JoinHostPort(host, port), nil
+}
+
+func firstLANIPv4() (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+
+	for _, iface := range ifaces {
+		if (iface.Flags&net.FlagUp) == 0 || (iface.Flags&net.FlagLoopback) != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil {
+				continue
+			}
+			ip = ip.To4()
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			return ip.String(), nil
+		}
+	}
+
+	return "", fmt.Errorf("no LAN IPv4 address found")
+}
+
+func shouldAutoOpenBrowser() bool {
+	val := strings.TrimSpace(os.Getenv("FOREIGN_TRADE_NO_BROWSER"))
+	if val == "" {
+		return true
+	}
+	val = strings.ToLower(val)
+	return val != "1" && val != "true" && val != "yes"
+}
+
+func openBrowser(url string) {
+	if url == "" {
+		return
+	}
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("自动打开浏览器失败: %v", err)
+	}
 }
 
 func spaHandler(content fs.FS) http.Handler {

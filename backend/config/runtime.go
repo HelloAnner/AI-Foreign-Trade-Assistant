@@ -14,7 +14,7 @@ const (
 	LogDirName       = "logs"
 	CacheDirName     = "cache"
 	ExportsDirName   = "exports"
-	DefaultHTTPAddr  = "127.0.0.1:7860"
+	DefaultHTTPAddr  = "0.0.0.0:7860"
 )
 
 // Paths keeps resolved filesystem locations the app relies on.
