@@ -228,6 +228,28 @@ func (s *Store) GetCustomerDetail(ctx context.Context, customerID int64) (*domai
 	return detail, nil
 }
 
+// DeleteCustomer permanently removes a customer and related records.
+func (s *Store) DeleteCustomer(ctx context.Context, customerID int64) error {
+	if s == nil || s.DB == nil {
+		return fmt.Errorf("store not initialized")
+	}
+	if customerID <= 0 {
+		return fmt.Errorf("invalid customer id")
+	}
+	result, err := s.DB.ExecContext(ctx, `DELETE FROM customers WHERE id = ?`, customerID)
+	if err != nil {
+		return fmt.Errorf("删除客户失败: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("删除客户失败: %w", err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // FindCustomerByQuery attempts to match an existing customer by name or website.
 func (s *Store) FindCustomerByQuery(ctx context.Context, query string) (*domain.Customer, []domain.Contact, error) {
 	if s == nil || s.DB == nil {

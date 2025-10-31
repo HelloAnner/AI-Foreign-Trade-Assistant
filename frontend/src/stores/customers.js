@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { listCustomers, getCustomerDetail } from '../api/customers'
+import { listCustomers, getCustomerDetail, deleteCustomer as deleteCustomerRequest } from '../api/customers'
 import { useUiStore } from './ui'
 
 export const useCustomersStore = defineStore('customers', {
@@ -63,6 +63,30 @@ export const useCustomersStore = defineStore('customers', {
     },
     clearDetail() {
       this.detail = null
+    },
+    async removeCustomer(customerId) {
+      const ui = useUiStore()
+      if (!customerId) {
+        ui.pushToast('无效的客户 ID', 'error')
+        return false
+      }
+      try {
+        const payload = await deleteCustomerRequest(customerId)
+        if (!payload.ok) {
+          ui.pushToast(payload.error || '删除客户失败', 'error')
+          return false
+        }
+        if (this.detail && this.detail.id === customerId) {
+          this.detail = null
+        }
+        await this.fetchList()
+        ui.pushToast('客户已删除', 'success')
+        return true
+      } catch (error) {
+        console.error('Failed to delete customer', error)
+        ui.pushToast(error.message, 'error')
+        return false
+      }
     },
   },
 })

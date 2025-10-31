@@ -9,3 +9,8 @@ export const getCustomerDetail = async (customerId) => {
   const { data } = await http.get(`/customers/${customerId}`)
   return data
 }
+
+export const deleteCustomer = async (customerId) => {
+  const { data } = await http.delete(`/customers/${customerId}`)
+  return data
+}

@@ -66,6 +66,7 @@
               <td>{{ formatDisplayDate(customer.last_followup_at) }}</td>
               <td class="actions">
                 <button type="button" @click="openEditor(customer.id)">编辑</button>
+                <button type="button" class="danger" @click="confirmDelete(customer)">删除</button>
               </td>
             </tr>
           </tbody>
@@ -151,6 +152,14 @@ const closeEditor = () => {
 const onCustomerUpdated = () => {
   closeEditor()
   refreshList()
+}
+
+const confirmDelete = async (customer) => {
+  if (!customer || !customer.id) return
+  const name = customer.name ? `「${customer.name}」` : '该客户'
+  const confirmed = window.confirm(`确定要删除${name}吗？此操作不可撤销。`)
+  if (!confirmed) return
+  await customersStore.removeCustomer(customer.id)
 }
 
 onMounted(() => {
@@ -273,7 +282,9 @@ onUnmounted(() => {
 }
 
 .customers__table td.actions {
-  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .customers__table td.actions button {
@@ -288,6 +299,16 @@ onUnmounted(() => {
 
 .customers__table td.actions button:hover {
   background: var(--surface-subtle);
+}
+
+.customers__table td.actions button.danger {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #b91c1c;
+}
+
+.customers__table td.actions button.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.7);
 }
 
 .empty {

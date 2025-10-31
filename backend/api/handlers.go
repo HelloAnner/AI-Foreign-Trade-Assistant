@@ -93,6 +93,24 @@ func (h *Handlers) GetCustomerDetail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Response{OK: true, Data: detail})
 }
 
+// DeleteCustomer removes a customer and cascaded data.
+func (h *Handlers) DeleteCustomer(w http.ResponseWriter, r *http.Request) {
+	customerID, err := parseID(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	if err := h.Store.DeleteCustomer(r.Context(), customerID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, Response{OK: false, Error: "客户不存在"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{OK: true})
+}
+
 // SaveSettings persists the settings payload.
 func (h *Handlers) SaveSettings(w http.ResponseWriter, r *http.Request) {
 	if err := h.Store.SaveSettings(r.Context(), r.Body); err != nil {
