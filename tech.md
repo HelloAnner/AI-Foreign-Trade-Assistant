@@ -42,12 +42,17 @@
     - vite.config.ts
   - /scripts（打包、发布辅助）
 - 运行时（首次启动自动创建）
-  - ./foreign_trade
+  - ~/.foreign_trade（首次运行会从旧目录 ~/foreign_trade 迁移，如存在）
     - app.db（SQLite）
     - config.json（全局配置）
-    - logs/app.log
+    - logs/app.log（按天切分，历史日志自动 gzip 压缩）
     - cache/（搜索结果与网页快取）
     - exports/（导出报告或邮件备份）
+
+五、日志
+- 位置：默认写入用户目录下 `~/.foreign_trade/logs`，当前文件 `app.log`，每日生成 `app.YYYY-MM-DD.log` 并在切分后自动 gzip 压缩历史日志；同时输出到终端（stdout）。
+- 等级：默认 Info；可通过环境变量 `LOG_LEVEL` 调整（支持 `debug`/`info`/`warn`/`error`/`off`）。
+- 后端内部所有 stdlib `log.Printf` 输出会写入文件；同时提供结构化 `slog` 日志（见 `backend/logging`）。
 
 四、数据库模型（SQLite）
 通用字段：id INTEGER PK AUTOINCREMENT；created_at TEXT；updated_at TEXT（ISO8601）

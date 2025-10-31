@@ -17,6 +17,7 @@ import (
 	"github.com/anner/ai-foreign-trade-assistant/backend/services"
 	"github.com/anner/ai-foreign-trade-assistant/backend/store"
 	"github.com/anner/ai-foreign-trade-assistant/backend/task"
+	"github.com/anner/ai-foreign-trade-assistant/backend/logging"
 )
 
 //go:embed all:static
@@ -43,6 +44,11 @@ func run(ctx context.Context) error {
 	}
 
 	if err := appconfig.Ensure(paths); err != nil {
+		return err
+	}
+
+	// Initialize logging to daily-rotated files under ~/.foreign_trade/logs
+	if err := logging.Setup(paths); err != nil {
 		return err
 	}
 
