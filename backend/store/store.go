@@ -58,7 +58,7 @@ func (s *Store) InitSchema(ctx context.Context) error {
 		search_provider TEXT,
 		search_api_key TEXT,
 		automation_enabled INTEGER DEFAULT 0,
-		automation_followup_days INTEGER DEFAULT 7,
+		automation_followup_days INTEGER DEFAULT 3,
 		automation_required_grade TEXT DEFAULT 'A',
 		created_at TEXT,
 		updated_at TEXT
@@ -133,6 +133,10 @@ func (s *Store) InitSchema(ctx context.Context) error {
 			last_error TEXT,
 			context_email_id INTEGER,
 			generated_email_id INTEGER,
+			schedule_mode TEXT DEFAULT 'simple',
+			delay_value INTEGER DEFAULT 0,
+			delay_unit TEXT,
+			cron_expression TEXT,
 			created_at TEXT,
 			updated_at TEXT,
 			FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE,
@@ -167,7 +171,7 @@ func (s *Store) InitSchema(ctx context.Context) error {
 		}
 	}
 
-	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE settings ADD COLUMN automation_followup_days INTEGER DEFAULT 7`); err != nil {
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE settings ADD COLUMN automation_followup_days INTEGER DEFAULT 3`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column name") {
 			return fmt.Errorf("ensure automation_followup_days column: %w", err)
 		}
@@ -176,6 +180,30 @@ func (s *Store) InitSchema(ctx context.Context) error {
 	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE settings ADD COLUMN automation_required_grade TEXT DEFAULT 'A'`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column name") {
 			return fmt.Errorf("ensure automation_required_grade column: %w", err)
+		}
+	}
+
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE scheduled_tasks ADD COLUMN schedule_mode TEXT DEFAULT 'simple'`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure schedule_mode column: %w", err)
+		}
+	}
+
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE scheduled_tasks ADD COLUMN delay_value INTEGER DEFAULT 0`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure delay_value column: %w", err)
+		}
+	}
+
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE scheduled_tasks ADD COLUMN delay_unit TEXT`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure delay_unit column: %w", err)
+		}
+	}
+
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE scheduled_tasks ADD COLUMN cron_expression TEXT`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure cron_expression column: %w", err)
 		}
 	}
 

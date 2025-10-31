@@ -117,21 +117,57 @@
         <section class="section">
           <h4>自动跟进计划</h4>
           <div class="schedule">
-            <div class="schedule__current" v-if="form.followup.next_due">
+            <div class="schedule__current" v-if="followupSummary">
               <span class="label">当前计划</span>
-              <span>{{ formatDate(form.followup.next_due) }}</span>
+              <span>{{ followupSummary }}</span>
             </div>
-            <div class="schedule__options">
+            <div class="schedule__mode">
               <button
-                v-for="option in scheduleOptions"
-                :key="option"
                 type="button"
-                :class="['ghost', { active: form.followup.delay === option } ]"
-                :disabled="!form.email.email_id"
-                @click="toggleSchedule(option)"
+                :class="['pill', { active: form.followup.mode !== 'cron' }]"
+                @click="form.followup.mode = 'simple'"
               >
-                {{ option }} 天后
+                简单延迟
               </button>
+              <button
+                type="button"
+                :class="['pill', { active: form.followup.mode === 'cron' }]"
+                @click="form.followup.mode = 'cron'"
+              >
+                Cron 表达式
+              </button>
+            </div>
+            <div v-if="form.followup.mode !== 'cron'" class="schedule__simple">
+              <label>
+                <span>延迟时长</span>
+                <input v-model.number="form.followup.delayValue" type="number" min="1" />
+              </label>
+              <label>
+                <span>时间单位</span>
+                <select v-model="form.followup.delayUnit">
+                  <option value="minutes">分钟</option>
+                  <option value="hours">小时</option>
+                  <option value="days">天</option>
+                </select>
+              </label>
+              <div class="schedule__quick">
+                <span>快捷：</span>
+                <button type="button" @click="applyFollowupQuick(30, 'minutes')">30 分钟</button>
+                <button type="button" @click="applyFollowupQuick(4, 'hours')">4 小时</button>
+                <button type="button" @click="applyFollowupQuick(3, 'days')">3 天</button>
+                <button type="button" @click="applyFollowupQuick(7, 'days')">7 天</button>
+              </div>
+            </div>
+            <div v-else class="schedule__cron">
+              <label>
+                <span>Cron 表达式</span>
+                <input
+                  v-model="form.followup.cronExpression"
+                  type="text"
+                  placeholder="如：0 9 * * MON"
+                />
+              </label>
+              <p class="hint">支持标准 5/6 位 cron 语法，以及 @daily、@weekly 等描述。</p>
             </div>
             <p v-if="!form.email.email_id" class="hint">保存前需要先有开发信草稿才能设置自动跟进。</p>
           </div>
@@ -193,7 +229,10 @@ const form = reactive({
     body: '',
   },
   followup: {
-    delay: null,
+    mode: 'simple',
+    delayValue: 3,
+    delayUnit: 'days',
+    cronExpression: '',
     next_due: '',
   },
   sourceJSON: null,
@@ -204,16 +243,36 @@ const original = reactive({
   gradeReason: '',
   analysisEnabled: false,
   emailEnabled: false,
-  followupDue: '',
+  followup: {
+    mode: 'simple',
+    delayValue: 3,
+    delayUnit: 'days',
+    cronExpression: '',
+    next_due: '',
+  },
 })
 
-const scheduleOptions = [3, 7, 14]
 const saving = ref(false)
 
 const formatDate = (value) => {
   if (!value) return '—'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+const describeSchedule = (task) => {
+  if (!task) return ''
+  const due = formatDate(task.due_at || task.next_due)
+  if (task.mode === 'cron' && task.cron_expression) {
+    return due ? `Cron：${task.cron_expression}（下次 ${due}）` : `Cron：${task.cron_expression}`
+  }
+  if (task.delay_value && task.delay_unit) {
+    const unitLabel = { minutes: '分钟', hours: '小时', days: '天' }[task.delay_unit] || task.delay_unit
+    return due
+      ? `${task.delay_value}${unitLabel} 后执行，预计 ${due}`
+      : `${task.delay_value}${unitLabel} 后执行`
+  }
+  return due ? `预计 ${due} 执行` : ''
 }
 
 const hydrateForm = (customer) => {
@@ -244,17 +303,25 @@ const hydrateForm = (customer) => {
     subject: customer.email_draft?.subject || '',
     body: customer.email_draft?.body || '',
   }
-  form.followup = {
-    delay: null,
-    next_due: customer.scheduled_task?.due_at || '',
-  }
+  const task = customer.scheduled_task || null
+  form.followup.mode = task?.mode || 'simple'
+  form.followup.delayValue = task?.delay_value || 3
+  form.followup.delayUnit = task?.delay_unit || 'days'
+  form.followup.cronExpression = task?.cron_expression || ''
+  form.followup.next_due = task?.due_at || ''
   form.sourceJSON = customer.source_json || null
 
   original.grade = form.grade
   original.gradeReason = form.gradeReason
   original.analysisEnabled = Boolean(customer.analysis)
   original.emailEnabled = Boolean(customer.email_draft)
-  original.followupDue = form.followup.next_due
+  Object.assign(original.followup, {
+    mode: form.followup.mode,
+    delayValue: form.followup.delayValue,
+    delayUnit: form.followup.delayUnit,
+    cronExpression: form.followup.cronExpression,
+    next_due: form.followup.next_due,
+  })
 }
 
 watch(
@@ -284,8 +351,10 @@ const removeContact = (index) => {
   form.contacts.splice(index, 1)
 }
 
-const toggleSchedule = (days) => {
-  form.followup.delay = form.followup.delay === days ? null : days
+const applyFollowupQuick = (value, unit) => {
+  form.followup.mode = 'simple'
+  form.followup.delayValue = value
+  form.followup.delayUnit = unit
 }
 
 const sanitizedContacts = computed(() => {
@@ -302,6 +371,17 @@ const sanitizedContacts = computed(() => {
   }
   return mapped
 })
+
+const followupSummary = computed(() =>
+  describeSchedule({
+    mode: form.followup.mode,
+    cron_expression: form.followup.cronExpression,
+    delay_value: form.followup.delayValue,
+    delay_unit: form.followup.delayUnit,
+    due_at: form.followup.next_due,
+    next_due: form.followup.next_due,
+  })
+)
 
 const handleSave = async () => {
   if (!form.id) return
@@ -344,18 +424,66 @@ const handleSave = async () => {
       })
     }
 
-    if (form.followup.delay && form.email.email_id) {
-      const scheduleResp = await scheduleFollowup({
-        customer_id: form.id,
-        context_email_id: form.email.email_id,
-        delay_days: form.followup.delay,
-      })
-      if (scheduleResp?.ok && scheduleResp.data?.due_at) {
-        form.followup.next_due = scheduleResp.data.due_at
+    let scheduleUpdated = false
+    if (form.email.email_id) {
+      const mode = (form.followup.mode || 'simple').toLowerCase() === 'cron' ? 'cron' : 'simple'
+      const trimmedCron = form.followup.cronExpression?.trim() || ''
+      const delayValue = Number(form.followup.delayValue) > 0 ? Number(form.followup.delayValue) : 3
+      const delayUnit = form.followup.delayUnit || 'days'
+      const prev = original.followup || {}
+      let shouldSchedule = false
+      if (mode === 'cron') {
+        if (trimmedCron) {
+          shouldSchedule =
+            prev.mode !== 'cron' ||
+            trimmedCron !== (prev.cronExpression || '').trim()
+        }
+      } else {
+        shouldSchedule =
+          prev.mode === 'cron' ||
+          delayValue !== Number(prev.delayValue || 0) ||
+          delayUnit !== (prev.delayUnit || 'days')
+      }
+      if (shouldSchedule) {
+        const request = {
+          customer_id: form.id,
+          context_email_id: form.email.email_id,
+          mode,
+        }
+        if (mode === 'cron') {
+          request.cron_expression = trimmedCron
+        } else {
+          request.delay_value = delayValue
+          request.delay_unit = delayUnit
+        }
+        const scheduleResp = await scheduleFollowup(request)
+        if (scheduleResp?.ok && scheduleResp.data) {
+          const task = scheduleResp.data
+          form.followup.next_due = task.due_at || form.followup.next_due
+          form.followup.mode = task.mode || mode
+          form.followup.delayValue = task.delay_value || delayValue
+          form.followup.delayUnit = task.delay_unit || delayUnit
+          form.followup.cronExpression = task.cron_expression || trimmedCron
+          Object.assign(original.followup, {
+            mode: form.followup.mode,
+            delayValue: form.followup.delayValue,
+            delayUnit: form.followup.delayUnit,
+            cronExpression: form.followup.cronExpression,
+            next_due: form.followup.next_due,
+          })
+          if (describeSchedule(task)) {
+            ui.pushToast(`自动跟进已更新：${describeSchedule(task)}`, 'success')
+          } else {
+            ui.pushToast('自动跟进已更新', 'success')
+          }
+          scheduleUpdated = true
+        }
       }
     }
 
-    ui.pushToast('客户信息已保存', 'success')
+    if (!scheduleUpdated) {
+      ui.pushToast('客户信息已保存', 'success')
+    }
     emit('updated')
   } catch (error) {
     console.error('Failed to save customer', error)
@@ -520,13 +648,117 @@ textarea {
 .schedule {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
-.schedule__options {
+.schedule__current {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(19, 73, 236, 0.12);
+  color: var(--primary-500);
+  font-size: 13px;
+}
+
+.schedule__current .label {
+  font-weight: 600;
+}
+
+.schedule__mode {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: var(--radius-full);
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.schedule__mode .pill {
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.schedule__mode .pill.active {
+  background: #fff;
+  color: var(--primary-500);
+  box-shadow: 0 6px 16px rgba(19, 73, 236, 0.12);
+}
+
+.schedule__simple {
+  display: flex;
   flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.schedule__simple label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.schedule__simple input,
+.schedule__simple select {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-default);
+  font-size: 13px;
+  min-width: 110px;
+}
+
+.schedule__quick {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.schedule__quick button {
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 6px 12px;
+  background: rgba(19, 73, 236, 0.12);
+  color: var(--primary-500);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.schedule__quick button:hover {
+  background: rgba(19, 73, 236, 0.18);
+}
+
+.schedule__cron {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.schedule__cron label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.schedule__cron input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-default);
+  font-size: 13px;
 }
 
 .ghost {

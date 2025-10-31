@@ -15,6 +15,43 @@ import {
 } from '../api/flow'
 import { useUiStore } from './ui'
 
+const humanizeUnit = (unit) => {
+  switch (unit) {
+    case 'minutes':
+      return '分钟'
+    case 'hours':
+      return '小时'
+    case 'days':
+      return '天'
+    default:
+      return unit || ''
+  }
+}
+
+const formatDueAt = (value) => {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+const scheduleToastMessage = (task) => {
+  if (!task) return '自动跟进任务已保存'
+  if (task.mode === 'cron' && task.cron_expression) {
+    const next = formatDueAt(task.due_at)
+    return next
+      ? `已启用 Cron 自动跟进（${task.cron_expression}），下次执行时间 ${next}`
+      : `已启用 Cron 自动跟进（${task.cron_expression}）`
+  }
+  if (task.delay_value && task.delay_unit) {
+    const unit = humanizeUnit(task.delay_unit)
+    const next = formatDueAt(task.due_at)
+    return next
+      ? `已设置 ${task.delay_value}${unit} 后自动跟进，预计 ${next} 触发`
+      : `已设置 ${task.delay_value}${unit} 后自动跟进`
+  }
+  return '自动跟进任务已保存'
+}
+
 export const useFlowStore = defineStore('flow', {
   state: () => ({
     step: 1,
@@ -251,18 +288,27 @@ export const useFlowStore = defineStore('flow', {
         this.loading.followup = false
       }
     },
-    async createSchedule(delayDays) {
+    async createSchedule(options) {
       if (!this.customerId || !this.emailDraft) return
       const ui = useUiStore()
       this.loading.schedule = true
       try {
-        const payload = await scheduleFollowup({
+        const mode = (options?.mode || 'simple').toLowerCase()
+        const request = {
           customer_id: this.customerId,
           context_email_id: this.emailDraft.email_id,
-          delay_days: delayDays,
-        })
+          mode,
+        }
+        if (mode === 'cron') {
+          request.cron_expression = options?.cronExpression || ''
+        } else {
+          const value = Number(options?.delayValue)
+          request.delay_value = Number.isFinite(value) && value > 0 ? value : 3
+          request.delay_unit = options?.delayUnit || 'days'
+        }
+        const payload = await scheduleFollowup(request)
         this.scheduledTask = payload.data
-        ui.pushToast(`已设置 ${delayDays} 天后的自动跟进`, 'success')
+        ui.pushToast(scheduleToastMessage(payload.data), 'success')
       } catch (error) {
         ui.pushToast(error.message, 'error')
       } finally {

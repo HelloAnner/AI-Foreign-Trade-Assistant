@@ -5,23 +5,74 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/anner/ai-foreign-trade-assistant/backend/domain"
 )
 
+// ScheduledTaskInput captures scheduling metadata persisted alongside due time.
+type ScheduledTaskInput struct {
+	CustomerID     int64
+	ContextEmailID int64
+	DueAt          time.Time
+	Mode           string
+	DelayValue     int
+	DelayUnit      string
+	CronExpression string
+}
+
 // CreateScheduledTask inserts a new scheduled follow-up task.
-func (s *Store) CreateScheduledTask(ctx context.Context, customerID, contextEmailID int64, dueAt time.Time) (int64, error) {
+func (s *Store) CreateScheduledTask(ctx context.Context, input *ScheduledTaskInput) (int64, error) {
 	if s == nil || s.DB == nil {
 		return 0, fmt.Errorf("store not initialized")
 	}
+	if input == nil {
+		return 0, fmt.Errorf("schedule input is nil")
+	}
+	if input.CustomerID <= 0 || input.ContextEmailID <= 0 {
+		return 0, fmt.Errorf("invalid scheduling references")
+	}
+	if input.DueAt.IsZero() {
+		return 0, fmt.Errorf("due time is required")
+	}
+
 	now := Now()
+
+	mode := strings.TrimSpace(input.Mode)
+	if mode == "" {
+		mode = "simple"
+	}
+	delayUnit := strings.TrimSpace(input.DelayUnit)
+	cronExpr := strings.TrimSpace(input.CronExpression)
+
+	var delayUnitVal any
+	if delayUnit != "" {
+		delayUnitVal = delayUnit
+	} else {
+		delayUnitVal = nil
+	}
+
+	var cronExprVal any
+	if cronExpr != "" {
+		cronExprVal = cronExpr
+	} else {
+		cronExprVal = nil
+	}
+
 	res, err := s.DB.ExecContext(ctx,
-		`INSERT INTO scheduled_tasks (customer_id, due_at, status, context_email_id, created_at, updated_at)
-         VALUES (?, ?, 'scheduled', ?, ?, ?)`,
-		customerID,
-		dueAt.UTC().Format(time.RFC3339),
-		contextEmailID,
+		`INSERT INTO scheduled_tasks (
+			customer_id, due_at, status, last_error, context_email_id, generated_email_id,
+			schedule_mode, delay_value, delay_unit, cron_expression,
+			created_at, updated_at
+		) VALUES (?, ?, 'scheduled', NULL, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+		input.CustomerID,
+		input.DueAt.UTC().Format(time.RFC3339),
+		input.ContextEmailID,
+		mode,
+		input.DelayValue,
+		delayUnitVal,
+		cronExprVal,
 		now,
 		now,
 	)
@@ -44,7 +95,8 @@ func (s *Store) GetLatestScheduledTask(ctx context.Context, customerID int64) (*
 		return nil, fmt.Errorf("invalid customer id")
 	}
 	row := s.DB.QueryRowContext(ctx,
-		`SELECT id, customer_id, due_at, status, last_error, context_email_id, generated_email_id, created_at, updated_at
+		`SELECT id, customer_id, due_at, status, last_error, context_email_id, generated_email_id,
+		        schedule_mode, delay_value, delay_unit, cron_expression, created_at, updated_at
          FROM scheduled_tasks
          WHERE customer_id = ?
          ORDER BY updated_at DESC
@@ -52,10 +104,14 @@ func (s *Store) GetLatestScheduledTask(ctx context.Context, customerID int64) (*
 		customerID,
 	)
 	var (
-		task      domain.ScheduledTask
-		dueAt     string
-		lastErr   sql.NullString
-		generated sql.NullInt64
+		task       domain.ScheduledTask
+		dueAt      string
+		lastErr    sql.NullString
+		generated  sql.NullInt64
+		mode       sql.NullString
+		delayValue sql.NullInt64
+		delayUnit  sql.NullString
+		cronExpr   sql.NullString
 	)
 	if err := row.Scan(
 		&task.ID,
@@ -65,6 +121,10 @@ func (s *Store) GetLatestScheduledTask(ctx context.Context, customerID int64) (*
 		&lastErr,
 		&task.ContextEmailID,
 		&generated,
+		&mode,
+		&delayValue,
+		&delayUnit,
+		&cronExpr,
 		&task.CreatedAt,
 		&task.UpdatedAt,
 	); err != nil {
@@ -80,6 +140,21 @@ func (s *Store) GetLatestScheduledTask(ctx context.Context, customerID int64) (*
 	if generated.Valid {
 		task.GeneratedEmailID = generated.Int64
 	}
+	if mode.Valid {
+		task.Mode = mode.String
+	}
+	if delayValue.Valid {
+		task.DelayValue = int(delayValue.Int64)
+	}
+	if delayUnit.Valid {
+		task.DelayUnit = delayUnit.String
+	}
+	if cronExpr.Valid {
+		task.CronExpression = cronExpr.String
+	}
+	if task.Mode == "" {
+		task.Mode = "simple"
+	}
 	return &task, nil
 }
 
@@ -88,7 +163,9 @@ func (s *Store) ListScheduledTasks(ctx context.Context, status string) ([]domain
 	if s == nil || s.DB == nil {
 		return nil, fmt.Errorf("store not initialized")
 	}
-	query := `SELECT id, customer_id, due_at, status, last_error, context_email_id, generated_email_id, created_at, updated_at FROM scheduled_tasks`
+	query := `SELECT id, customer_id, due_at, status, last_error, context_email_id, generated_email_id,
+	                  schedule_mode, delay_value, delay_unit, cron_expression, created_at, updated_at
+	          FROM scheduled_tasks`
 	var rows *sql.Rows
 	var err error
 	if status != "" {
@@ -108,6 +185,10 @@ func (s *Store) ListScheduledTasks(ctx context.Context, status string) ([]domain
 		var dueAt string
 		var lastError sql.NullString
 		var generated sql.NullInt64
+		var mode sql.NullString
+		var delayValue sql.NullInt64
+		var delayUnit sql.NullString
+		var cronExpr sql.NullString
 		if err := rows.Scan(
 			&task.ID,
 			&task.CustomerID,
@@ -116,6 +197,10 @@ func (s *Store) ListScheduledTasks(ctx context.Context, status string) ([]domain
 			&lastError,
 			&task.ContextEmailID,
 			&generated,
+			&mode,
+			&delayValue,
+			&delayUnit,
+			&cronExpr,
 			&task.CreatedAt,
 			&task.UpdatedAt,
 		); err != nil {
@@ -127,6 +212,21 @@ func (s *Store) ListScheduledTasks(ctx context.Context, status string) ([]domain
 		}
 		if generated.Valid {
 			task.GeneratedEmailID = generated.Int64
+		}
+		if mode.Valid {
+			task.Mode = mode.String
+		}
+		if delayValue.Valid {
+			task.DelayValue = int(delayValue.Int64)
+		}
+		if delayUnit.Valid {
+			task.DelayUnit = delayUnit.String
+		}
+		if cronExpr.Valid {
+			task.CronExpression = cronExpr.String
+		}
+		if task.Mode == "" {
+			task.Mode = "simple"
 		}
 		tasks = append(tasks, task)
 	}
@@ -145,7 +245,8 @@ func (s *Store) FetchDueTasks(ctx context.Context, limit int) ([]domain.Schedule
 		limit = 10
 	}
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT id, customer_id, due_at, status, last_error, context_email_id, generated_email_id, created_at, updated_at
+		`SELECT id, customer_id, due_at, status, last_error, context_email_id, generated_email_id,
+		        schedule_mode, delay_value, delay_unit, cron_expression, created_at, updated_at
          FROM scheduled_tasks
          WHERE status = 'scheduled' AND due_at <= ?
          ORDER BY due_at ASC
@@ -164,6 +265,10 @@ func (s *Store) FetchDueTasks(ctx context.Context, limit int) ([]domain.Schedule
 		var dueAt string
 		var lastError sql.NullString
 		var generated sql.NullInt64
+		var mode sql.NullString
+		var delayValue sql.NullInt64
+		var delayUnit sql.NullString
+		var cronExpr sql.NullString
 		if err := rows.Scan(
 			&task.ID,
 			&task.CustomerID,
@@ -172,6 +277,10 @@ func (s *Store) FetchDueTasks(ctx context.Context, limit int) ([]domain.Schedule
 			&lastError,
 			&task.ContextEmailID,
 			&generated,
+			&mode,
+			&delayValue,
+			&delayUnit,
+			&cronExpr,
 			&task.CreatedAt,
 			&task.UpdatedAt,
 		); err != nil {
@@ -183,6 +292,21 @@ func (s *Store) FetchDueTasks(ctx context.Context, limit int) ([]domain.Schedule
 		}
 		if generated.Valid {
 			task.GeneratedEmailID = generated.Int64
+		}
+		if mode.Valid {
+			task.Mode = mode.String
+		}
+		if delayValue.Valid {
+			task.DelayValue = int(delayValue.Int64)
+		}
+		if delayUnit.Valid {
+			task.DelayUnit = delayUnit.String
+		}
+		if cronExpr.Valid {
+			task.CronExpression = cronExpr.String
+		}
+		if task.Mode == "" {
+			task.Mode = "simple"
 		}
 		tasks = append(tasks, task)
 	}
@@ -238,15 +362,20 @@ func (s *Store) GetTask(ctx context.Context, taskID int64) (*domain.ScheduledTas
 		return nil, fmt.Errorf("store not initialized")
 	}
 	row := s.DB.QueryRowContext(ctx,
-		`SELECT id, customer_id, due_at, status, last_error, context_email_id, generated_email_id, created_at, updated_at
+		`SELECT id, customer_id, due_at, status, last_error, context_email_id, generated_email_id,
+		        schedule_mode, delay_value, delay_unit, cron_expression, created_at, updated_at
          FROM scheduled_tasks WHERE id = ?`,
 		taskID,
 	)
 	var (
-		task      domain.ScheduledTask
-		dueAt     string
-		lastErr   sql.NullString
-		generated sql.NullInt64
+		task       domain.ScheduledTask
+		dueAt      string
+		lastErr    sql.NullString
+		generated  sql.NullInt64
+		mode       sql.NullString
+		delayValue sql.NullInt64
+		delayUnit  sql.NullString
+		cronExpr   sql.NullString
 	)
 	if err := row.Scan(
 		&task.ID,
@@ -256,6 +385,10 @@ func (s *Store) GetTask(ctx context.Context, taskID int64) (*domain.ScheduledTas
 		&lastErr,
 		&task.ContextEmailID,
 		&generated,
+		&mode,
+		&delayValue,
+		&delayUnit,
+		&cronExpr,
 		&task.CreatedAt,
 		&task.UpdatedAt,
 	); err != nil {
@@ -270,6 +403,21 @@ func (s *Store) GetTask(ctx context.Context, taskID int64) (*domain.ScheduledTas
 	}
 	if generated.Valid {
 		task.GeneratedEmailID = generated.Int64
+	}
+	if mode.Valid {
+		task.Mode = mode.String
+	}
+	if delayValue.Valid {
+		task.DelayValue = int(delayValue.Int64)
+	}
+	if delayUnit.Valid {
+		task.DelayUnit = delayUnit.String
+	}
+	if cronExpr.Valid {
+		task.CronExpression = cronExpr.String
+	}
+	if task.Mode == "" {
+		task.Mode = "simple"
 	}
 	return &task, nil
 }

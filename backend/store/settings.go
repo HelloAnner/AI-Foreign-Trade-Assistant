@@ -72,6 +72,9 @@ func (s *Store) GetSettings(ctx context.Context) (*Settings, error) {
 		return nil, fmt.Errorf("scan settings: %w", err)
 	}
 	settings.AutomationEnabled = automationEnabledInt == 1
+	if settings.AutomationFollowupDays <= 0 {
+		settings.AutomationFollowupDays = 3
+	}
 	return &settings, nil
 }
 
@@ -80,6 +83,9 @@ func (s *Store) SaveSettings(ctx context.Context, body io.Reader) error {
 	var payload Settings
 	if err := json.NewDecoder(body).Decode(&payload); err != nil {
 		return fmt.Errorf("decode payload: %w", err)
+	}
+	if payload.AutomationFollowupDays <= 0 {
+		payload.AutomationFollowupDays = 3
 	}
 
 	_, err := s.DB.ExecContext(ctx, `

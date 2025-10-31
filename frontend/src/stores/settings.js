@@ -19,7 +19,7 @@ const defaultState = () => ({
     search_provider: '',
     search_api_key: '',
     automation_enabled: false,
-    automation_followup_days: 7,
+    automation_followup_days: 3,
     automation_required_grade: 'A',
   },
 })

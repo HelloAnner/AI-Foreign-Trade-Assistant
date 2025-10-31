@@ -29,12 +29,14 @@ const { toasts } = storeToRefs(uiStore)
 
 .toast-stack {
   position: fixed;
-  inset-inline-end: 24px;
-  inset-block-end: 24px;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   gap: 12px;
   z-index: 60;
+  align-items: center;
 }
 
 .toast {
@@ -63,6 +65,6 @@ const { toasts } = storeToRefs(uiStore)
 .toast-enter-from,
 .toast-leave-to {
   opacity: 0;
-  transform: translateY(12px);
+  transform: translateY(-12px);
 }
 </style>

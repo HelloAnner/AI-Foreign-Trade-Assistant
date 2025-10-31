@@ -126,15 +126,22 @@ type FirstFollowupRequest struct {
 
 // ScheduleRequest schedules an automated follow-up.
 type ScheduleRequest struct {
-	CustomerID     int64 `json:"customer_id"`
-	ContextEmailID int64 `json:"context_email_id"`
-	DelayDays      int   `json:"delay_days"`
+	CustomerID     int64  `json:"customer_id"`
+	ContextEmailID int64  `json:"context_email_id"`
+	Mode           string `json:"mode,omitempty"`
+	DelayValue     int    `json:"delay_value,omitempty"`
+	DelayUnit      string `json:"delay_unit,omitempty"`
+	CronExpression string `json:"cron_expression,omitempty"`
 }
 
 // ScheduleResponse provides task id and due time.
 type ScheduleResponse struct {
-	TaskID int64  `json:"task_id"`
-	DueAt  string `json:"due_at"`
+	TaskID         int64  `json:"task_id"`
+	DueAt          string `json:"due_at"`
+	Mode           string `json:"mode"`
+	DelayValue     int    `json:"delay_value,omitempty"`
+	DelayUnit      string `json:"delay_unit,omitempty"`
+	CronExpression string `json:"cron_expression,omitempty"`
 }
 
 // ScheduledTask is used when listing scheduled followups.
@@ -146,6 +153,10 @@ type ScheduledTask struct {
 	ContextEmailID   int64  `json:"context_email_id"`
 	GeneratedEmailID int64  `json:"generated_email_id"`
 	LastError        string `json:"last_error,omitempty"`
+	Mode             string `json:"mode,omitempty"`
+	DelayValue       int    `json:"delay_value,omitempty"`
+	DelayUnit        string `json:"delay_unit,omitempty"`
+	CronExpression   string `json:"cron_expression,omitempty"`
 	CreatedAt        string `json:"created_at"`
 	UpdatedAt        string `json:"updated_at"`
 }

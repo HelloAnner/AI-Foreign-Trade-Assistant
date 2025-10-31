@@ -208,7 +208,7 @@ const local = reactive({
   search_provider: '',
   search_api_key: '',
   automation_enabled: false,
-  automation_followup_days: 7,
+  automation_followup_days: 3,
   automation_required_grade: 'A',
 })
 
@@ -259,7 +259,7 @@ const handleReset = () => {
     Object.assign(local, data.value)
   } else {
     local.automation_enabled = false
-    local.automation_followup_days = 7
+    local.automation_followup_days = 3
     local.automation_required_grade = 'A'
   }
 }
