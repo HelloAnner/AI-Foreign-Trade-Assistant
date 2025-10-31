@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anner/ai-foreign-trade-assistant/backend/store"
@@ -47,7 +48,6 @@ func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]S
 	if c == nil || c.store == nil {
 		return nil, fmt.Errorf("search client not initialized")
 	}
-	log.Printf("[search] query=\"%s\" limit=%d status=started", truncateForLog(query, 60), limit)
 	if limit <= 0 {
 		limit = 5
 	}
@@ -59,6 +59,89 @@ func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]S
 
 	provider := strings.ToLower(strings.TrimSpace(settings.SearchProvider))
 	apiKey := strings.TrimSpace(settings.SearchAPIKey)
+
+	variants := buildSearchVariants(query)
+	if len(variants) == 0 {
+		return nil, fmt.Errorf("搜索关键词不能为空")
+	}
+
+	type result struct {
+		idx   int
+		items []SearchItem
+		err   error
+	}
+
+	maxItems := limit * len(variants)
+	if maxItems == 0 {
+		maxItems = limit
+	}
+
+	resultsChan := make(chan result, len(variants))
+	var wg sync.WaitGroup
+	for idx, variant := range variants {
+		wg.Add(1)
+		go func(i int, q string) {
+			defer wg.Done()
+			items, err := c.searchSingle(ctx, provider, apiKey, q, limit)
+			resultsChan <- result{idx: i, items: items, err: err}
+		}(idx, variant)
+	}
+
+	wg.Wait()
+	close(resultsChan)
+
+	ordered := make([][]SearchItem, len(variants))
+	var firstErr error
+	for res := range resultsChan {
+		if res.err != nil {
+			if firstErr == nil {
+				firstErr = res.err
+			}
+			log.Printf("[search] variant=%d query=\"%s\" error=%v", res.idx, truncateForLog(variants[res.idx], 60), res.err)
+			continue
+		}
+		ordered[res.idx] = res.items
+	}
+
+	combined := make([]SearchItem, 0, maxItems)
+	seen := map[string]struct{}{}
+	for idx, items := range ordered {
+		if len(items) == 0 {
+			continue
+		}
+		log.Printf("[search] variant=%d query=\"%s\" results=%d", idx, truncateForLog(variants[idx], 60), len(items))
+		for _, item := range items {
+			key := searchItemKey(item)
+			if key == "" {
+				continue
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			combined = append(combined, item)
+			if maxItems > 0 && len(combined) >= maxItems {
+				break
+			}
+		}
+		if maxItems > 0 && len(combined) >= maxItems {
+			break
+		}
+	}
+
+	if len(combined) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+
+	return combined, nil
+}
+
+func (c *SearchClient) searchSingle(ctx context.Context, provider, apiKey, query string, limit int) ([]SearchItem, error) {
+	providerLabel := provider
+	if providerLabel == "" {
+		providerLabel = "direct"
+	}
+	log.Printf("[search] provider=%s query=\"%s\" limit=%d status=started", providerLabel, truncateForLog(query, 60), limit)
 
 	switch provider {
 	case "bing":
@@ -81,6 +164,47 @@ func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]S
 		log.Printf("[search] provider=%s status=unsupported", provider)
 		return nil, fmt.Errorf("暂不支持的搜索提供商: %s", provider)
 	}
+}
+
+func buildSearchVariants(query string) []string {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return nil
+	}
+
+	variants := []string{trimmed}
+	contactQuery := trimmed
+	if !strings.Contains(trimmed, "联系人") {
+		contactQuery = strings.TrimSpace(trimmed + " 联系人")
+	}
+	if !strings.EqualFold(contactQuery, trimmed) {
+		variants = append(variants, contactQuery)
+	}
+	return variants
+}
+
+func searchItemKey(item SearchItem) string {
+	if normalized := strings.TrimSpace(strings.ToLower(normalizeMaybe(item.URL))); normalized != "" {
+		if strings.Contains(item.Snippet, "搜索未配置") {
+			snippetKey := strings.TrimSpace(strings.ToLower(item.Snippet))
+			if snippetKey != "" {
+				return snippetKey
+			}
+		}
+		return normalized
+	}
+
+	snippetKey := strings.TrimSpace(strings.ToLower(item.Snippet))
+	if snippetKey != "" {
+		return snippetKey
+	}
+
+	titleKey := strings.TrimSpace(strings.ToLower(item.Title))
+	if titleKey != "" {
+		return titleKey
+	}
+
+	return ""
 }
 
 // TestSearch validates that the configured provider can return at least one result.

@@ -118,7 +118,9 @@ export const useFlowStore = defineStore('flow', {
       country: company.country || this.country,
       summary: company.summary || this.summary,
       contacts: this.contacts,
-      source_json: this.resolveResult || {},
+    }
+    if (this.resolveResult && typeof this.resolveResult === 'object') {
+      payload.source_json = this.resolveResult
     }
     try {
       if (this.customerId) {
