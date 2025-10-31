@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AI 外贸客户开发助手 - 主界面</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "primary": "#1349ec",
+            "background-light": "#f6f6f8",
+            "background-dark": "#101522",
+          },
+          fontFamily: {
+            "display": ["Inter", "sans-serif"]
+          },
+          borderRadius: {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+  </style>
+</head>
+<body class="font-display">
+<div class="relative flex min-h-screen w-full bg-background-light dark:bg-background-dark">
+<aside class="flex w-64 flex-col border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-background-dark p-4">
+<div class="flex flex-col gap-4">
+<div class="flex items-center gap-3 px-3 py-2">
+<h1 class="text-gray-900 dark:text-white text-base font-bold leading-normal">AI 外贸客户开发助手</h1>
+</div>
+<nav class="flex flex-col gap-2 mt-4">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-primary dark:bg-primary/20" href="#">
+<span class="material-symbols-outlined">add_circle</span>
+<p class="text-sm font-medium leading-normal">新增客户</p>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined">group</span>
+<p class="text-sm font-medium leading-normal">客户管理</p>
+</a>
+</nav>
+</div>
+<div class="mt-auto flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined">settings</span>
+<p class="text-sm font-medium leading-normal">全局配置</p>
+</a>
+</div>
+</aside>
+<main class="flex-1 flex flex-col items-center justify-center p-6">
+<div class="w-full max-w-2xl text-center">
+<h1 class="text-4xl font-bold text-gray-900 dark:text-white mb-6">AI 外贸客户开发助手</h1>
+<div class="relative">
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-14 placeholder:text-gray-400 px-4 text-base font-normal" placeholder="输入客户公司全名或官网地址" type="text"/>
+</div>
+<div class="mt-8">
+<button class="flex h-12 w-48 items-center justify-center rounded-lg bg-primary px-6 text-base font-semibold text-white hover:bg-primary/90 disabled:bg-primary/50 disabled:cursor-not-allowed mx-auto" type="submit">开始分析</button>
+</div>
+</div>
+</main>
+</div>
+
+</body></html>

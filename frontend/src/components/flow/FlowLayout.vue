@@ -1,67 +1,62 @@
 <template>
-  <div class="shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="avatar"></div>
-        <div>
-          <p class="brand-title">AI外贸助手</p>
-          <p class="brand-sub">智能客户开发</p>
-        </div>
+  <div class="flow-shell">
+    <aside class="flow-sidebar">
+      <div class="flow-sidebar__brand">
+        <h1>AI 外贸客户开发助手</h1>
       </div>
-      <nav class="menu">
+
+      <nav class="flow-sidebar__nav">
         <button
+          v-for="item in navItems"
+          :key="item.id"
           type="button"
-          class="menu-item"
-          :class="{ 'menu-item--active': isActive('home') }"
-          @click="goRoute('home')"
+          class="flow-sidebar__item"
+          :class="{ 'flow-sidebar__item--active': item.route && isRouteActive([item.route]), 'flow-sidebar__item--disabled': item.disabled }"
+          :disabled="item.disabled"
+          @click="navigate(item.route)"
         >
-          <span class="material">search</span>
-          客户开发
-        </button>
-        <button class="menu-item" type="button" disabled>
-          <span class="material">group</span>
-          客户管理
-        </button>
-        <button class="menu-item" type="button" disabled>
-          <span class="material">mail</span>
-          邮件营销
-        </button>
-        <button class="menu-item" type="button" disabled>
-          <span class="material">bar_chart</span>
-          数据分析
-        </button>
-        <button
-          type="button"
-          class="menu-item"
-          :class="{ 'menu-item--active': isActive('settings') }"
-          @click="goRoute('settings')"
-        >
-          <span class="material">settings</span>
-          全局配置
+          <span class="material">{{ item.icon }}</span>
+          {{ item.label }}
         </button>
       </nav>
+
+
+      <button
+        type="button"
+        class="flow-sidebar__footer"
+        :class="{ 'flow-sidebar__footer--active': isRouteActive(['settings']) }"
+        @click="navigate('settings')"
+      >
+        <span class="material">settings</span>
+        全局配置
+      </button>
     </aside>
 
-    <main class="main">
-      <div class="progress">
-        <div class="progress-top">
-          <p>当前进度：{{ step }}/{{ total }}</p>
-        </div>
-        <div class="progress-bar">
-          <div class="progress-fill" :style="{ width: `${Math.min(100, Math.max(0, progress))}%` }"></div>
-        </div>
+    <main class="flow-main">
+      <div v-if="total > 1" class="flow-steps">
+        <button
+          v-for="(label, index) in stepLabels"
+          :key="label"
+          type="button"
+          class="flow-step"
+          :class="stepClasses(index)"
+          :disabled="index > unlockedIndex"
+          @click="handleStepClick(index)"
+        >
+          {{ label }}
+        </button>
       </div>
 
-      <header class="headline">
+      <header class="flow-headline">
         <h1>{{ title }}</h1>
-        <p>{{ subtitle }}</p>
+        <p v-if="subtitle">{{ subtitle }}</p>
       </header>
 
-      <section class="content">
+      <section class="flow-content">
         <slot />
       </section>
 
-      <footer class="footer">
+      <footer v-if="$slots.footer" class="flow-footer">
         <slot name="footer" />
       </footer>
     </main>
@@ -69,158 +64,261 @@
 </template>
 
 <script setup>
-import { useRouter, useRoute } from 'vue-router'
+import { computed, inject } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 const props = defineProps({
   step: { type: Number, default: 1 },
   total: { type: Number, default: 5 },
   title: { type: String, default: '' },
   subtitle: { type: String, default: '' },
-  progress: { type: Number, default: 0 },
 })
 
 const router = useRouter()
 const route = useRoute()
 
-const goRoute = (name) => {
+const flowNav = inject('flowNav', null)
+
+const navItems = computed(() => [
+  { id: 'dashboard', route: null, icon: 'dashboard', label: 'Dashboard', disabled: true },
+  { id: 'home', route: 'home', icon: 'add_circle', label: '新增客户', disabled: false },
+  { id: 'customers', route: 'customers', icon: 'group', label: '客户管理', disabled: false },
+  { id: 'email', route: null, icon: 'mark_email_unread', label: '邮件营销', disabled: true },
+  { id: 'analytics', route: null, icon: 'stacked_bar_chart', label: '数据分析', disabled: true },
+  { id: 'help', route: null, icon: 'help', label: '帮助中心', disabled: true },
+])
+
+const resolveIndex = (source, fallback) => {
+  if (typeof source === 'number') return source
+  if (source && typeof source.value === 'number') return source.value
+  if (typeof source === 'function') {
+    const result = source()
+    return typeof result === 'number' ? result : fallback
+  }
+  return fallback
+}
+
+const activeIndex = computed(() => {
+  const fallback = Math.max(0, props.step - 1)
+  if (!flowNav) {
+    return fallback
+  }
+  return resolveIndex(flowNav.activeIndex, fallback)
+})
+
+const unlockedIndex = computed(() => {
+  const fallback = Math.max(0, props.step - 1)
+  if (!flowNav) {
+    return fallback
+  }
+  return resolveIndex(flowNav.unlockIndex, fallback)
+})
+
+const stepLabels = computed(() => {
+  return Array.from({ length: props.total }, (_, index) => `Step ${index + 1}`)
+})
+
+const navigate = (name) => {
   if (!name || route.name === name) return
   router.push({ name })
 }
 
-const isActive = (name) => route.name === name
+const isRouteActive = (names) => names.includes(route.name)
+
+const handleStepClick = (index) => {
+  if (index > unlockedIndex.value) return
+  flowNav?.goTo?.(index)
+}
+
+const stepClasses = (index) => {
+  return {
+    'flow-step--active': index === activeIndex.value,
+    'flow-step--unlocked': index <= unlockedIndex.value,
+  }
+}
 </script>
 
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined');
 
-.shell {
+.flow-shell {
   min-height: 100vh;
-  display: flex;
-  background: var(--surface-background);
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  background: var(--app-background);
   color: var(--text-primary);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-.sidebar {
-  width: 240px;
-  background: #fff;
-  border-right: 1px solid var(--border-subtle);
+.flow-sidebar {
+  background: var(--sidebar-background);
+  border-right: 1px solid var(--border-default);
   padding: 32px 24px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 28px;
 }
 
-.brand {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-.avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-}
-
-.brand-title {
+.flow-sidebar__brand h1 {
   margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.flow-sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.flow-sidebar__item,
+.flow-sidebar__footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.flow-sidebar__item .material,
+.flow-sidebar__footer .material {
+  font-family: 'Material Symbols Outlined';
+  font-size: 20px;
+}
+
+.flow-sidebar__item--active,
+.flow-sidebar__footer--active {
+  background: rgba(19, 73, 236, 0.12);
+  color: var(--primary-500);
   font-weight: 600;
 }
 
-.brand-sub {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
+.flow-sidebar__item:hover,
+.flow-sidebar__footer:hover {
+  background: rgba(19, 73, 236, 0.08);
+  color: var(--primary-500);
 }
 
-.menu {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.flow-sidebar__footer {
+  margin-top: auto;
+  justify-content: flex-start;
 }
 
-.menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: none;
-  border-radius: 12px;
-  padding: 10px 14px;
-  font-size: 14px;
-  color: var(--text-secondary);
-  background: transparent;
-  cursor: pointer;
-}
-
-.menu-item--active {
-  background: rgba(37, 99, 235, 0.12);
-  color: var(--accent-color);
-}
-
-.menu-item[disabled] {
+.flow-sidebar__item--disabled {
+  opacity: 0.45;
   cursor: not-allowed;
-  opacity: 0.5;
 }
 
-.material {
-  font-family: 'Material Symbols Outlined';
-  font-size: 20px;
-  display: inline-flex;
-}
-
-.main {
-  flex: 1;
-  padding: 40px 64px;
+.flow-main {
+  padding: 48px 72px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 24px;
 }
 
-.progress {
+.flow-steps {
   display: flex;
-  flex-direction: column;
+  justify-content: center;
   gap: 12px;
 }
 
-.progress-top {
-  display: flex;
-  justify-content: space-between;
+.flow-step {
+  border-radius: var(--radius-full);
+  padding: 10px 24px;
+  background: #fff;
+  border: 1px solid var(--border-default);
   color: var(--text-secondary);
   font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.progress-bar {
-  height: 8px;
-  border-radius: 999px;
-  background: var(--border-subtle);
-  overflow: hidden;
+.flow-step--unlocked {
+  color: var(--primary-500);
 }
 
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+.flow-step--active {
+  background: var(--primary-500);
+  border-color: transparent;
+  color: #fff;
 }
 
-.headline h1 {
+.flow-step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.flow-headline h1 {
   margin: 0;
   font-size: 32px;
   font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
-.headline p {
-  margin: 8px 0 0;
-  color: var(--text-secondary);
+.flow-headline p {
+  margin: 10px 0 0;
   font-size: 16px;
+  color: var(--text-secondary);
 }
 
-.content {
-  flex: 1;
+.flow-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
-.footer {
+.flow-footer {
+  margin-top: auto;
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
+}
+
+@media (max-width: 1024px) {
+  .flow-shell {
+    grid-template-columns: 200px 1fr;
+  }
+
+  .flow-main {
+    padding: 40px 32px;
+  }
+}
+
+@media (max-width: 768px) {
+  .flow-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-sidebar {
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 24px;
+    border-right: none;
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  .flow-sidebar__nav {
+    flex-direction: row;
+    gap: 12px;
+  }
+
+  .flow-sidebar__footer {
+    margin-top: 0;
+  }
+
+  .flow-main {
+    padding: 32px 24px 48px;
+  }
+
+  .flow-steps {
+    flex-wrap: wrap;
+  }
 }
 </style>

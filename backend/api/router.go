@@ -25,6 +25,9 @@ func Router(h *Handlers) http.Handler {
 		api.Post("/settings/test-smtp", h.TestSMTP)
 		api.Post("/settings/test-search", h.TestSearch)
 
+		api.Get("/customers", h.ListCustomers)
+		api.Get("/customers/{id}", h.GetCustomerDetail)
+
 		api.Post("/companies/resolve", h.ResolveCompany)
 		api.Post("/companies", h.CreateCompany)
 		api.Put("/companies/{id}", h.UpdateCompany)

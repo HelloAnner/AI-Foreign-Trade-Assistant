@@ -149,3 +149,34 @@ type ScheduledTask struct {
 	CreatedAt        string `json:"created_at"`
 	UpdatedAt        string `json:"updated_at"`
 }
+
+// CustomerSummary represents the lightweight information shown in the customer list.
+type CustomerSummary struct {
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	Country        string `json:"country"`
+	Grade          string `json:"grade"`
+	UpdatedAt      string `json:"updated_at"`
+	LastFollowupAt string `json:"last_followup_at,omitempty"`
+	NextFollowupAt string `json:"next_followup_at,omitempty"`
+	Status         string `json:"status"`
+}
+
+// CustomerDetail aggregates all five workflow steps for editing.
+type CustomerDetail struct {
+	ID            int64               `json:"id"`
+	Name          string              `json:"name"`
+	Website       string              `json:"website"`
+	Country       string              `json:"country"`
+	Summary       string              `json:"summary"`
+	Grade         string              `json:"grade"`
+	GradeReason   string              `json:"grade_reason"`
+	Contacts      []Contact           `json:"contacts"`
+	Analysis      *AnalysisResponse   `json:"analysis,omitempty"`
+	EmailDraft    *EmailDraftResponse `json:"email_draft,omitempty"`
+	FollowupID    int64               `json:"followup_id,omitempty"`
+	ScheduledTask *ScheduledTask      `json:"scheduled_task,omitempty"`
+	SourceJSON    json.RawMessage     `json:"source_json,omitempty"`
+	CreatedAt     string              `json:"created_at"`
+	UpdatedAt     string              `json:"updated_at"`
+}

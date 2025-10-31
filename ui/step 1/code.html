@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AI 外贸客户开发助手 - Step 1: 智能信息获取</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "primary": "#1349ec",
+            "background-light": "#f6f6f8",
+            "background-dark": "#101522",
+          },
+          fontFamily: {
+            "display": ["Inter", "sans-serif"]
+          },
+          borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+        },
+      },
+    }
+    </script>
+<style>
+        body {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+    </style>
+</head>
+<body class="font-display">
+<div class="relative flex min-h-screen w-full bg-background-light dark:bg-background-dark">
+<aside class="flex w-64 flex-col border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-background-dark p-4">
+<div class="flex flex-col gap-4">
+<div class="flex items-center gap-3 px-3 py-2">
+<h1 class="text-gray-900 dark:text-white text-base font-bold leading-normal">AI 外贸客户开发助手</h1>
+</div>
+<nav class="flex flex-col gap-2 mt-4">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-primary dark:bg-primary/20" href="#">
+<span class="material-symbols-outlined">add_circle</span>
+<p class="text-sm font-medium leading-normal">新增客户</p>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined">group</span>
+<p class="text-sm font-medium leading-normal">客户管理</p>
+</a>
+</nav>
+</div>
+<div class="mt-auto flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined">settings</span>
+<p class="text-sm font-medium leading-normal">全局配置</p>
+</a>
+</div>
+</aside>
+<main class="flex-1 overflow-y-auto">
+<div class="px-6 py-8 md:px-10">
+<div class="mb-8">
+<div class="flex items-center justify-center bg-white dark:bg-gray-900/50 p-2 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800">
+<a class="flex-1 text-center px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold shadow" href="#">Step 1</a>
+<div class="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
+<a class="flex-1 text-center px-4 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium" href="#">Step 2</a>
+<div class="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
+<a class="flex-1 text-center px-4 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium" href="#">Step 3</a>
+<div class="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
+<a class="flex-1 text-center px-4 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium" href="#">Step 4</a>
+<div class="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
+<a class="flex-1 text-center px-4 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium" href="#">Step 5</a>
+</div>
+</div>
+<div class="mb-8">
+<div class="flex flex-wrap justify-between gap-3">
+<div class="flex min-w-72 flex-col gap-2">
+<h1 class="text-gray-900 dark:text-white text-3xl font-bold leading-tight tracking-tight">Step 1: 智能信息获取与聚合</h1>
+<p class="text-gray-500 dark:text-gray-400 text-base font-normal leading-normal">AI已自动搜索并聚合了潜在客户的关键信息，请检查并按需修改。</p>
+</div>
+</div>
+</div>
+<div class="flex flex-col gap-6">
+<div class="bg-white dark:bg-background-dark dark:border dark:border-gray-800 rounded-xl shadow-sm p-6">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<label class="flex flex-col md:col-span-2">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">公司官网</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" value="https://www.examplecorp.com"/>
+</label>
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">国家/地区</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" value="美国"/>
+</label>
+</div>
+</div>
+<div class="bg-white dark:bg-background-dark dark:border dark:border-gray-800 rounded-xl shadow-sm p-6">
+<h2 class="text-gray-900 dark:text-white text-lg font-bold leading-tight mb-4">潜在联系人</h2>
+<div class="space-y-6">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">姓名</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" value="John Doe"/>
+</label>
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">职位</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" value="采购经理"/>
+</label>
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">邮箱</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" value="john.doe@examplecorp.com"/>
+</label>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">姓名</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" value="Jane Smith"/>
+</label>
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">职位</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" value="产品总监"/>
+</label>
+<label class="flex flex-col">
+<p class="text-gray-800 dark:text-gray-200 text-sm font-medium leading-normal pb-2">邮箱</p>
+<input class="form-input w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 h-11 placeholder:text-gray-400 px-3 text-sm font-normal" value="jane.smith@examplecorp.com"/>
+</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+<footer class="sticky bottom-0 bg-white/80 dark:bg-background-dark/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-800 px-6 py-4 md:px-10">
+<div class="flex justify-end gap-3">
+<button class="flex h-11 items-center justify-center rounded-lg bg-primary px-6 text-sm font-semibold text-white hover:bg-primary/90 disabled:bg-primary/50 disabled:cursor-not-allowed" type="submit">下一步</button>
+</div>
+</footer>
+</main>
+</div>
+</body></html>

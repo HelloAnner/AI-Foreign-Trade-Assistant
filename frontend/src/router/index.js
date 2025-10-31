@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+const HomePage = () => import('../pages/HomePage.vue')
 const MainFlow = () => import('../pages/MainFlow.vue')
+const CustomersPage = () => import('../pages/CustomersPage.vue')
 const SettingsPage = () => import('../pages/SettingsPage.vue')
 
 const router = createRouter({
@@ -9,6 +11,16 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
+      component: HomePage,
+    },
+    {
+      path: '/customers',
+      name: 'customers',
+      component: CustomersPage,
+    },
+    {
+      path: '/flow',
+      name: 'flow',
       component: MainFlow,
     },
     {

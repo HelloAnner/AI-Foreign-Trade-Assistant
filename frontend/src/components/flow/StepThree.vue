@@ -3,59 +3,88 @@
     :step="3"
     :total="5"
     title="Step 3: 生成产品切入点分析"
-    subtitle="结合客户业务与我方优势，生成可编辑的切入报告。"
-    :progress="60"
+    subtitle="AI 根据客户信息生成可编辑的分析报告。"
   >
-    <section class="card">
-      <div v-if="flowStore.step < 3" class="placeholder">请先确认客户为 A 级并完成前两步。</div>
-      <div v-else class="content">
-        <button class="primary" :disabled="flowStore.loading.analysis" @click="flowStore.fetchAnalysis">
-          {{ flowStore.loading.analysis ? '生成中…' : flowStore.analysis ? '重新生成' : '生成分析' }}
-        </button>
-
-        <transition name="fade">
-          <div v-if="flowStore.analysis" key="analysis" class="analysis-form">
-            <label>
-              <span>核心业务</span>
-              <textarea v-model="flowStore.analysis.core_business" rows="3"></textarea>
-            </label>
-            <label>
-              <span>潜在痛点</span>
-              <textarea v-model="flowStore.analysis.pain_points" rows="3"></textarea>
-            </label>
-            <label>
-              <span>我方切入点</span>
-              <textarea v-model="flowStore.analysis.my_entry_points" rows="3"></textarea>
-            </label>
-            <label>
-              <span>完整报告</span>
-              <textarea v-model="flowStore.analysis.full_report" rows="5"></textarea>
-            </label>
-          </div>
-        </transition>
+    <section class="analysis">
+      <div v-if="flowStore.loading.analysis" class="analysis__loading">
+        <div class="spinner"></div>
+        <p>正在生成切入点分析…</p>
+        <small>AI 正在为您深度分析客户需求，请稍候。</small>
+      </div>
+      <div v-else-if="!flowStore.analysis" class="analysis__empty">
+        <p>暂无分析内容，点击下方按钮生成。</p>
+        <button type="button" class="primary" @click="generateAnalysis">生成分析</button>
+      </div>
+      <div v-else class="analysis__body">
+        <header>
+          <h2>AI 产品切入点建议</h2>
+          <button type="button" class="ghost" @click="toggleEditing">
+            <span class="material">edit</span>
+            {{ editing ? '完成编辑' : '编辑' }}
+          </button>
+        </header>
+        <div class="section">
+          <span>客户核心业务</span>
+          <textarea v-if="editing" v-model="flowStore.analysis.core_business" rows="3"></textarea>
+          <div v-else class="text-block">{{ flowStore.analysis.core_business }}</div>
+        </div>
+        <div class="section">
+          <span>潜在需求 / 痛点</span>
+          <textarea v-if="editing" v-model="flowStore.analysis.pain_points" rows="4"></textarea>
+          <div v-else class="text-block">{{ flowStore.analysis.pain_points }}</div>
+        </div>
+        <div class="section">
+          <span>我方切入点</span>
+          <textarea v-if="editing" v-model="flowStore.analysis.my_entry_points" rows="4"></textarea>
+          <div v-else class="text-block">{{ flowStore.analysis.my_entry_points }}</div>
+        </div>
+        <div class="section">
+          <span>完整报告</span>
+          <textarea v-if="editing" v-model="flowStore.analysis.full_report" rows="6"></textarea>
+          <div v-else class="text-block">{{ flowStore.analysis.full_report }}</div>
+        </div>
       </div>
     </section>
 
     <template #footer>
-      <div class="footer-actions">
-        <button class="ghost" type="button" @click="nav.goPrev?.()">返回上一步</button>
-        <button class="primary" type="button" @click="goNext" :disabled="!flowStore.analysis">
-          保存并继续
-        </button>
-      </div>
+      <button class="ghost" type="button" @click="nav.goPrev?.()">返回上一步</button>
+      <button class="primary" type="button" :disabled="!flowStore.analysis || flowStore.loading.analysis" @click="handleNext">
+        保存并继续
+      </button>
     </template>
   </FlowLayout>
 </template>
 
 <script setup>
-import { inject } from 'vue'
+import { inject, onMounted, ref } from 'vue'
 import FlowLayout from './FlowLayout.vue'
 import { useFlowStore } from '../../stores/flow'
 
 const flowStore = useFlowStore()
 const nav = inject('flowNav', {})
+const editing = ref(false)
 
-const goNext = async () => {
+const ensureAnalysis = () => {
+  if (!flowStore.customerId || flowStore.loading.analysis) return
+  if (!flowStore.analysis) {
+    flowStore.fetchAnalysis()
+  }
+}
+
+onMounted(() => {
+  ensureAnalysis()
+})
+
+const generateAnalysis = () => {
+  ensureAnalysis()
+}
+
+const toggleEditing = () => {
+  editing.value = !editing.value
+}
+
+const handleNext = async () => {
+  if (!flowStore.analysis) return
   await flowStore.persistAnalysis()
   flowStore.step = Math.max(flowStore.step, 4)
   nav.goNext?.()
@@ -63,84 +92,118 @@ const goNext = async () => {
 </script>
 
 <style scoped>
-.card {
-  background: #ffffff;
-  border-radius: 24px;
+.analysis {
+  background: var(--surface-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-card);
   padding: 32px;
-  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
   gap: 24px;
-  min-height: 420px;
 }
 
-button {
-  border: none;
-  border-radius: 12px;
-  padding: 12px 24px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-button.primary {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  color: #fff;
-}
-
-button.ghost {
-  background: rgba(148, 163, 184, 0.16);
+.analysis__loading,
+.analysis__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   color: var(--text-secondary);
-}
-
-.placeholder {
-  padding: 32px;
-  border-radius: 18px;
-  border: 1px dashed var(--border-subtle);
   text-align: center;
-  color: var(--text-tertiary);
 }
 
-.content {
+.analysis__body header {
   display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.analysis-form {
-  display: flex;
-  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
   gap: 16px;
 }
 
-label {
+.analysis__body h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.section {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
+.section span {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
 textarea {
-  width: 100%;
   padding: 12px 14px;
   border-radius: 14px;
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-muted);
+  border: 1px solid var(--border-default);
+  background: #fff;
   font-size: 14px;
   resize: vertical;
 }
 
-.footer-actions {
-  display: flex;
-  gap: 12px;
+.text-block {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-subtle);
+  white-space: pre-wrap;
+  text-align: left;
 }
 
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.25s ease;
+.spinner {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 4px solid rgba(19, 73, 236, 0.15);
+  border-top-color: var(--primary-500);
+  animation: spin 1s linear infinite;
 }
 
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
+.ghost,
+.primary {
+  border-radius: var(--radius-full);
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ghost {
+  border: 1px solid var(--border-default);
+  background: #fff;
+  color: var(--text-secondary);
+}
+
+.ghost:hover {
+  border-color: var(--primary-500);
+  color: var(--primary-500);
+}
+
+.primary {
+  border: none;
+  background: var(--primary-500);
+  color: #fff;
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .analysis {
+    padding: 24px;
+  }
 }
 </style>

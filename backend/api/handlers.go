@@ -48,6 +48,51 @@ func (h *Handlers) GetSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Response{OK: true, Data: settings})
 }
 
+// ListCustomers returns the customer summaries for management UI.
+func (h *Handlers) ListCustomers(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	filter := store.CustomerListFilter{
+		Grade:   strings.TrimSpace(query.Get("grade")),
+		Country: strings.TrimSpace(query.Get("country")),
+		Search:  strings.TrimSpace(query.Get("q")),
+		Sort:    strings.TrimSpace(query.Get("sort")),
+		Status:  strings.TrimSpace(query.Get("status")),
+	}
+
+	if limitStr := strings.TrimSpace(query.Get("limit")); limitStr != "" {
+		if limit, err := strconv.Atoi(limitStr); err == nil {
+			filter.Limit = limit
+		}
+	}
+	if offsetStr := strings.TrimSpace(query.Get("offset")); offsetStr != "" {
+		if offset, err := strconv.Atoi(offsetStr); err == nil {
+			filter.Offset = offset
+		}
+	}
+
+	customers, err := h.Store.ListCustomers(r.Context(), filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: customers})
+}
+
+// GetCustomerDetail exposes all persisted information for a customer.
+func (h *Handlers) GetCustomerDetail(w http.ResponseWriter, r *http.Request) {
+	customerID, err := parseID(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	detail, err := h.Store.GetCustomerDetail(r.Context(), customerID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: detail})
+}
+
 // SaveSettings persists the settings payload.
 func (h *Handlers) SaveSettings(w http.ResponseWriter, r *http.Request) {
 	if err := h.Store.SaveSettings(r.Context(), r.Body); err != nil {

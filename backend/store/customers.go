@@ -7,9 +7,226 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anner/ai-foreign-trade-assistant/backend/domain"
 )
+
+// CustomerListFilter defines filters for listing customers.
+type CustomerListFilter struct {
+	Grade   string
+	Country string
+	Search  string
+	Sort    string
+	Status  string
+	Limit   int
+	Offset  int
+}
+
+// ListCustomers returns lightweight summaries for the management table.
+func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) ([]domain.CustomerSummary, error) {
+	if s == nil || s.DB == nil {
+		return nil, fmt.Errorf("store not initialized")
+	}
+
+	baseQuery := `
+        SELECT
+            c.id,
+            c.name,
+            c.country,
+            COALESCE(NULLIF(upper(c.grade), ''), 'UNKNOWN') AS grade,
+            c.updated_at,
+            COALESCE(MAX(f.updated_at), '') AS last_followup_at,
+            COALESCE(MIN(CASE WHEN st.status = 'scheduled' THEN st.due_at END), '') AS next_followup_at
+        FROM customers c
+        LEFT JOIN followups f ON f.customer_id = c.id
+        LEFT JOIN scheduled_tasks st ON st.customer_id = c.id
+    `
+
+	conditions := make([]string, 0)
+	args := make([]any, 0)
+
+	if grade := strings.TrimSpace(filter.Grade); grade != "" {
+		conditions = append(conditions, "upper(c.grade) = ?")
+		args = append(args, strings.ToUpper(grade))
+	}
+	if country := strings.TrimSpace(filter.Country); country != "" {
+		conditions = append(conditions, "c.country = ?")
+		args = append(args, country)
+	}
+	if search := strings.TrimSpace(filter.Search); search != "" {
+		like := "%" + strings.ToLower(search) + "%"
+		conditions = append(conditions, "(lower(c.name) LIKE ? OR lower(c.website) LIKE ?)")
+		args = append(args, like, like)
+	}
+
+	if len(conditions) > 0 {
+		baseQuery += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	baseQuery += " GROUP BY c.id"
+
+	orderBy := " ORDER BY c.updated_at DESC"
+	switch filter.Sort {
+	case "name_asc":
+		orderBy = " ORDER BY c.name COLLATE NOCASE ASC"
+	case "name_desc":
+		orderBy = " ORDER BY c.name COLLATE NOCASE DESC"
+	case "grade_desc":
+		orderBy = " ORDER BY grade DESC, c.updated_at DESC"
+	case "grade_asc":
+		orderBy = " ORDER BY grade ASC, c.updated_at DESC"
+	case "last_followup_asc":
+		orderBy = " ORDER BY (last_followup_at = ''), last_followup_at ASC"
+	case "last_followup_desc":
+		orderBy = " ORDER BY (last_followup_at = ''), last_followup_at DESC"
+	case "next_followup_asc":
+		orderBy = " ORDER BY (next_followup_at = ''), next_followup_at ASC"
+	case "next_followup_desc":
+		orderBy = " ORDER BY (next_followup_at = ''), next_followup_at DESC"
+	}
+	// SQLite does not understand NULLS LAST, so emulate by coalescing.
+	query := baseQuery + orderBy
+	if filter.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, filter.Limit)
+	}
+	if filter.Offset > 0 {
+		query += " OFFSET ?"
+		args = append(args, filter.Offset)
+	}
+
+	rows, err := s.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("查询客户列表失败: %w", err)
+	}
+	defer rows.Close()
+
+	summaries := make([]domain.CustomerSummary, 0)
+	now := time.Now().UTC()
+
+	for rows.Next() {
+		var (
+			summary domain.CustomerSummary
+			grade   sql.NullString
+			updated sql.NullString
+			last    sql.NullString
+			next    sql.NullString
+		)
+		if err := rows.Scan(&summary.ID, &summary.Name, &summary.Country, &grade, &updated, &last, &next); err != nil {
+			return nil, fmt.Errorf("解析客户列表失败: %w", err)
+		}
+
+		summary.Grade = "UNKNOWN"
+		if grade.Valid && strings.TrimSpace(grade.String) != "" {
+			summary.Grade = strings.ToUpper(strings.TrimSpace(grade.String))
+		}
+
+		if updated.Valid {
+			summary.UpdatedAt = updated.String
+		}
+		if last.Valid {
+			summary.LastFollowupAt = last.String
+		}
+		if next.Valid {
+			summary.NextFollowupAt = next.String
+		}
+
+		summary.Status = deriveCustomerStatus(summary, now)
+		if filter.Status != "" && filter.Status != summary.Status {
+			continue
+		}
+
+		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历客户列表失败: %w", err)
+	}
+	return summaries, nil
+}
+
+func deriveCustomerStatus(summary domain.CustomerSummary, now time.Time) string {
+	grade := strings.ToUpper(strings.TrimSpace(summary.Grade))
+	if grade == "S" {
+		return "won"
+	}
+	if summary.NextFollowupAt != "" {
+		if due, err := time.Parse(time.RFC3339, summary.NextFollowupAt); err == nil {
+			if due.After(now) || due.IsZero() {
+				return "pending"
+			}
+		}
+		return "pending"
+	}
+	if summary.LastFollowupAt != "" {
+		return "in_progress"
+	}
+	return "pending"
+}
+
+// GetCustomerDetail loads all persisted information for a specific customer.
+func (s *Store) GetCustomerDetail(ctx context.Context, customerID int64) (*domain.CustomerDetail, error) {
+	if s == nil || s.DB == nil {
+		return nil, fmt.Errorf("store not initialized")
+	}
+	if customerID <= 0 {
+		return nil, fmt.Errorf("invalid customer id")
+	}
+
+	customer, err := s.GetCustomer(ctx, customerID)
+	if err != nil {
+		return nil, err
+	}
+
+	contacts, err := s.ListContacts(ctx, customerID)
+	if err != nil {
+		return nil, err
+	}
+
+	detail := &domain.CustomerDetail{
+		ID:          customer.ID,
+		Name:        customer.Name,
+		Website:     customer.Website,
+		Country:     customer.Country,
+		Summary:     customer.Summary,
+		Grade:       strings.ToUpper(strings.TrimSpace(customer.Grade)),
+		GradeReason: customer.GradeReason,
+		Contacts:    contacts,
+		SourceJSON:  customer.SourceJSON,
+		CreatedAt:   customer.CreatedAt,
+		UpdatedAt:   customer.UpdatedAt,
+	}
+
+	if detail.Grade == "" {
+		detail.Grade = "UNKNOWN"
+	}
+
+	if analysis, err := s.GetLatestAnalysis(ctx, customerID); err == nil {
+		detail.Analysis = analysis
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	if emailDraft, err := s.GetLatestEmailDraft(ctx, customerID, "initial"); err == nil {
+		detail.EmailDraft = emailDraft
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	if followupID, err := s.GetLatestFollowupID(ctx, customerID); err == nil {
+		detail.FollowupID = followupID
+	} else {
+		return nil, err
+	}
+
+	if task, err := s.GetLatestScheduledTask(ctx, customerID); err == nil {
+		detail.ScheduledTask = task
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	return detail, nil
+}
 
 // FindCustomerByQuery attempts to match an existing customer by name or website.
 func (s *Store) FindCustomerByQuery(ctx context.Context, query string) (*domain.Customer, []domain.Contact, error) {

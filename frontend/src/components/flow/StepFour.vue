@@ -3,136 +3,160 @@
     :step="4"
     :total="5"
     title="Step 4: 生成个性化开发信"
-    subtitle="生成开发信草稿，确认后保存为首次跟进记录。"
-    :progress="80"
+    subtitle="确认并微调邮件内容，保存为首次跟进记录。"
   >
-    <section class="card">
-      <div v-if="flowStore.step < 4" class="placeholder">请先完成切入点分析。</div>
-      <div v-else class="content">
-        <button class="primary" :disabled="flowStore.loading.email" @click="flowStore.generateEmail">
-          {{ flowStore.loading.email ? '生成中…' : flowStore.emailDraft ? '重新生成' : '生成开发信' }}
-        </button>
-
-        <transition name="fade">
-          <div v-if="flowStore.emailDraft" key="email" class="email-form">
-            <label>
-              <span>邮件标题</span>
-              <input v-model="flowStore.emailDraft.subject" type="text" />
-            </label>
-            <label>
-              <span>邮件正文</span>
-              <textarea v-model="flowStore.emailDraft.body" rows="10"></textarea>
-            </label>
-          </div>
-        </transition>
+    <section class="mail-card">
+      <div v-if="flowStore.loading.email" class="mail-card__loading">
+        <div class="spinner"></div>
+        <p>正在生成个性化开发信…</p>
+      </div>
+      <div v-else-if="!flowStore.emailDraft" class="mail-card__empty">
+        <p>尚未生成开发信草稿，点击下方按钮立即生成。</p>
+        <button type="button" class="primary" @click="generateEmail">生成开发信</button>
+      </div>
+      <div v-else class="mail-card__body">
+        <label>
+          <span>邮件标题</span>
+          <input v-model="flowStore.emailDraft.subject" type="text" />
+        </label>
+        <label>
+          <span>邮件正文</span>
+          <textarea v-model="flowStore.emailDraft.body" rows="12"></textarea>
+        </label>
+        <label>
+          <span>首次跟进备注（选填）</span>
+          <textarea v-model="followupNotes" rows="4" placeholder="记录与客户沟通的背景或期待的行动"></textarea>
+        </label>
       </div>
     </section>
 
     <template #footer>
-      <div class="footer-actions">
-        <button class="ghost" type="button" @click="nav.goPrev?.()">返回上一步</button>
-        <button
-          class="primary"
-          type="button"
-          :disabled="flowStore.loading.followup || !flowStore.emailDraft"
-          @click="handleSave"
-        >
-          {{ flowStore.loading.followup ? '保存中…' : '保存并继续' }}
-        </button>
-      </div>
+      <button
+        class="primary"
+        type="button"
+        :disabled="!flowStore.emailDraft || flowStore.loading.followup || flowStore.loading.email"
+        @click="handleSave"
+      >
+        {{ flowStore.loading.followup ? '保存中…' : '保存为首次跟进记录' }}
+      </button>
     </template>
   </FlowLayout>
 </template>
 
 <script setup>
-import { inject } from 'vue'
+import { inject, onMounted, ref } from 'vue'
 import FlowLayout from './FlowLayout.vue'
 import { useFlowStore } from '../../stores/flow'
 
 const flowStore = useFlowStore()
 const nav = inject('flowNav', {})
+const followupNotes = ref('')
+
+const ensureEmailDraft = () => {
+  if (!flowStore.customerId || flowStore.loading.email) return
+  if (!flowStore.emailDraft) {
+    flowStore.generateEmail()
+  }
+}
+
+onMounted(() => {
+  ensureEmailDraft()
+})
+
+const generateEmail = () => {
+  ensureEmailDraft()
+}
 
 const handleSave = async () => {
-  await flowStore.saveInitialFollowup()
-  flowStore.step = Math.max(flowStore.step, 5)
+  if (!flowStore.emailDraft) return
+  await flowStore.saveInitialFollowup(followupNotes.value)
   nav.goNext?.()
 }
 </script>
 
 <style scoped>
-.card {
-  background: #ffffff;
-  border-radius: 24px;
+.mail-card {
+  background: var(--surface-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-card);
   padding: 32px;
-  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
-button {
-  border: none;
-  border-radius: 12px;
-  padding: 12px 24px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-button.primary {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  color: #fff;
-}
-
-.placeholder {
-  padding: 32px;
-  border-radius: 18px;
-  border: 1px dashed var(--border-subtle);
+.mail-card__loading,
+.mail-card__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   text-align: center;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
-.content {
+.mail-card__body {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-}
-
-.email-form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 label {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
 }
 
 input,
 textarea {
-  width: 100%;
   padding: 12px 14px;
   border-radius: 14px;
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-muted);
+  border: 1px solid var(--border-default);
+  background: #fff;
   font-size: 14px;
+}
+
+textarea {
   resize: vertical;
 }
 
-.footer-actions {
-  display: flex;
-  gap: 12px;
+.spinner {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 4px solid rgba(19, 73, 236, 0.15);
+  border-top-color: var(--primary-500);
+  animation: spin 1s linear infinite;
 }
 
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.25s ease;
+.primary {
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--primary-500);
+  color: #fff;
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
+.primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .mail-card {
+    padding: 24px;
+  }
 }
 </style>

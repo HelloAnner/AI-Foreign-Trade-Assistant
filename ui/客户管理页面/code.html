@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>客户管理 - AI 外贸客户开发助手</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#1349ec",
+                        "background-light": "#f6f6f8",
+                        "background-dark": "#101522",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "Noto Sans", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="font-display bg-background-light dark:bg-background-dark text-[#111318] dark:text-gray-200">
+<div class="flex h-screen w-full">
+<aside class="flex h-full w-64 flex-col border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-background-dark px-4 py-6 shrink-0">
+<div class="flex h-full flex-col justify-between">
+<div class="flex flex-col gap-6">
+<h1 class="text-base font-bold leading-normal text-gray-900 dark:text-white px-3">AI 外贸客户开发助手</h1>
+<div class="flex flex-col gap-1">
+<a class="flex items-center gap-3 rounded-lg px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined text-xl">add</span>
+<p class="text-sm font-medium leading-normal">新增客户</p>
+</a>
+<a class="flex items-center gap-3 rounded-lg bg-primary/10 px-3 py-2 text-primary dark:bg-primary/20" href="#">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">group</span>
+<p class="text-sm font-medium leading-normal">客户管理</p>
+</a>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<a class="flex items-center gap-3 rounded-lg px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined text-xl">settings</span>
+<p class="text-sm font-medium leading-normal">全局配置</p>
+</a>
+</div>
+</div>
+</aside>
+<main class="flex-1 flex flex-col overflow-y-auto">
+<div class="p-6 sm:p-8 flex-1">
+<div class="max-w-7xl mx-auto">
+<div class="mb-6">
+<h2 class="text-2xl font-bold text-gray-900 dark:text-white">客户列表</h2>
+</div>
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm">
+<div class="p-4 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-center gap-4">
+<div class="flex items-center gap-2">
+<label class="text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0" for="filter-rating">评级:</label>
+<select class="form-select rounded-lg border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-primary focus:border-primary w-32" id="filter-rating">
+<option>全部</option>
+<option>S</option>
+<option>A</option>
+<option>B</option>
+<option>C</option>
+</select>
+</div>
+<div class="flex items-center gap-2">
+<label class="text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0" for="filter-country">国家:</label>
+<select class="form-select rounded-lg border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-primary focus:border-primary w-32" id="filter-country">
+<option>全部</option>
+<option>美国</option>
+<option>德国</option>
+<option>新加坡</option>
+<option>英国</option>
+<option>日本</option>
+</select>
+</div>
+<div class="flex items-center gap-2">
+<label class="text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0" for="filter-status">跟进状态:</label>
+<select class="form-select rounded-lg border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-primary focus:border-primary w-32" id="filter-status">
+<option>全部</option>
+<option>待跟进</option>
+<option>跟进中</option>
+<option>已成交</option>
+</select>
+</div>
+<div class="flex-grow"></div>
+<div class="flex items-center gap-2">
+<label class="text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0" for="sort-by">排序:</label>
+<select class="form-select rounded-lg border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-primary focus:border-primary w-48" id="sort-by">
+<option>按跟进日期降序</option>
+<option>按跟进日期升序</option>
+<option>按公司名升序</option>
+<option>按公司名降序</option>
+</select>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left">
+<thead>
+<tr class="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">公司名</th>
+<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">国家</th>
+<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">评级</th>
+<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">最新跟进日期</th>
+<th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">操作</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+<tr>
+<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">Global Trade Inc.</td>
+<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">美国</td>
+<td class="px-6 py-4 whitespace-nowrap">
+<span class="inline-flex items-center justify-center rounded-md h-6 px-2.5 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-xs font-semibold">A</span>
+</td>
+<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">2023-10-26</td>
+<td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+<button class="flex min-w-[64px] cursor-pointer items-center justify-center overflow-hidden rounded-md h-8 px-3 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600">编辑</button>
+</td>
+</tr>
+<tr>
+<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">Euro Supplies GmbH</td>
+<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">德国</td>
+<td class="px-6 py-4 whitespace-nowrap">
+<span class="inline-flex items-center justify-center rounded-md h-6 px-2.5 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 text-xs font-semibold">S</span>
+</td>
+<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">2023-10-25</td>
+<td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+<button class="flex min-w-[64px] cursor-pointer items-center justify-center overflow-hidden rounded-md h-8 px-3 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600">编辑</button>
+</td>
+</tr>
+<tr>
+<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">Asia Pacific Exports</td>
+<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">新加坡</td>
+<td class="px-6 py-4 whitespace-nowrap">
+<span class="inline-flex items-center justify-center rounded-md h-6 px-2.5 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-xs font-semibold">B</span>
+</td>
+<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">2023-10-24</td>
+<td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+<button class="flex min-w-[64px] cursor-pointer items-center justify-center overflow-hidden rounded-md h-8 px-3 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600">编辑</button>
+</td>
+</tr>
+<tr>
+<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">Britannic Goods Ltd.</td>
+<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">英国</td>
+<td class="px-6 py-4 whitespace-nowrap">
+<span class="inline-flex items-center justify-center rounded-md h-6 px-2.5 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-xs font-semibold">A</span>
+</td>
+<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">2023-10-23</td>
+<td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+<button class="flex min-w-[64px] cursor-pointer items-center justify-center overflow-hidden rounded-md h-8 px-3 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600">编辑</button>
+</td>
+</tr>
+<tr>
+<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">Sunrise Trading Co.</td>
+<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">日本</td>
+<td class="px-6 py-4 whitespace-nowrap">
+<span class="inline-flex items-center justify-center rounded-md h-6 px-2.5 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-xs font-semibold">C</span>
+</td>
+<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">2023-10-22</td>
+<td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+<button class="flex min-w-[64px] cursor-pointer items-center justify-center overflow-hidden rounded-md h-8 px-3 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600">编辑</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+
+</body></html>

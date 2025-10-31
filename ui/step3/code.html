@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AI 外贸客户开发助手 - Step 3: 产品切入点</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "primary": "#1349ec",
+            "background-light": "#f6f6f8",
+            "background-dark": "#101522",
+          },
+          fontFamily: {
+            "display": ["Inter", "sans-serif"]
+          },
+          borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+        },
+      },
+    }
+    </script>
+<style>
+        body {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body class="font-display">
+<div class="relative flex min-h-screen w-full bg-background-light dark:bg-background-dark">
+<aside class="flex w-64 flex-col border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-background-dark p-4">
+<div class="flex flex-col gap-4">
+<div class="flex items-center gap-3 px-3 py-2">
+<h1 class="text-gray-900 dark:text-white text-base font-bold leading-normal">AI 外贸客户开发助手</h1>
+</div>
+<nav class="flex flex-col gap-2 mt-4">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-primary dark:bg-primary/20" href="#">
+<span class="material-symbols-outlined">add_box</span>
+<p class="text-sm font-medium leading-normal">新增客户</p>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined">group</span>
+<p class="text-sm font-medium leading-normal">客户管理</p>
+</a>
+</nav>
+</div>
+<div class="mt-auto flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" href="#">
+<span class="material-symbols-outlined">settings</span>
+<p class="text-sm font-medium leading-normal">全局配置</p>
+</a>
+</div>
+</aside>
+<main class="flex-1 overflow-y-auto">
+<div class="px-6 py-8 md:px-10">
+<div class="mb-8">
+<div class="flex items-center justify-center bg-white dark:bg-gray-900/50 p-2 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800">
+<a class="flex-1 text-center px-4 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium" href="#">Step 1</a>
+<div class="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
+<a class="flex-1 text-center px-4 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium" href="#">Step 2</a>
+<div class="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
+<a class="flex-1 text-center px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold shadow" href="#">Step 3</a>
+<div class="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
+<a class="flex-1 text-center px-4 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium" href="#">Step 4</a>
+<div class="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
+<a class="flex-1 text-center px-4 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium" href="#">Step 5</a>
+</div>
+</div>
+<div class="mb-8">
+<div class="flex flex-wrap justify-between gap-3">
+<div class="flex min-w-72 flex-col gap-2">
+<h1 class="text-gray-900 dark:text-white text-3xl font-bold leading-tight tracking-tight">Step 3: 生成产品切入点分析</h1>
+</div>
+</div>
+</div>
+<div class="flex flex-col gap-6">
+<div class="hidden flex-col items-center justify-center text-center p-10 bg-white dark:bg-background-dark dark:border dark:border-gray-800 rounded-xl shadow-sm min-h-[400px]" id="loading-state">
+<div class="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+<p class="mt-4 text-lg font-medium text-gray-700 dark:text-gray-300">正在生成切入点分析...</p>
+<p class="text-sm text-gray-500 dark:text-gray-400">AI 正在为您深度分析客户需求，请稍候。</p>
+</div>
+<div class="bg-white dark:bg-background-dark dark:border dark:border-gray-800 rounded-xl shadow-sm p-6 space-y-8" id="report-content">
+<div class="flex items-center justify-between">
+<h2 class="text-xl font-bold text-gray-900 dark:text-white">AI 产品切入点建议</h2>
+<button class="flex items-center gap-2 rounded-lg bg-gray-100 dark:bg-gray-800 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700">
+<span class="material-symbols-outlined text-base">edit</span>
+<span>编辑</span>
+</button>
+</div>
+<div class="space-y-6">
+<div>
+<label class="text-sm font-semibold text-gray-800 dark:text-gray-200">客户核心业务</label>
+<textarea class="form-textarea mt-2 w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-gray-400 px-3 py-2 text-sm font-normal min-h-[100px]" rows="3">该公司是一家领先的电子消费品零售商，专注于为中高端市场提供创新的智能家居设备。他们在美国拥有超过200家线下门店，并运营着一个增长迅速的电商平台。</textarea>
+</div>
+<div>
+<label class="text-sm font-semibold text-gray-800 dark:text-gray-200">潜在需求/痛点</label>
+<textarea class="form-textarea mt-2 w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-gray-400 px-3 py-2 text-sm font-normal min-h-[120px]" rows="4">1. 供应链压力：随着市场扩张，他们需要更多样化、高质量且供应稳定的智能产品供应商。
+2. 产品同质化：市场竞争激烈，他们需要引入具有差异化特性和创新功能的产品来吸引消费者。
+3. 成本控制：在保证产品质量的同时，需要寻找更具成本效益的采购方案以提升利润空间。</textarea>
+</div>
+<div>
+<label class="text-sm font-semibold text-gray-800 dark:text-gray-200">我方切入点</label>
+<textarea class="form-textarea mt-2 w-full rounded-lg text-gray-900 dark:text-white dark:bg-gray-900 focus:outline-0 border border-gray-300 dark:border-gray-700 focus:border-primary dark:focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-gray-400 px-3 py-2 text-sm font-normal min-h-[120px]" rows="4">1. 创新产品线：重点推荐我方新研发的带AI语音助手的智能照明系列，该产品具有独特的节能算法和场景联动功能，符合其高端市场定位。
+2. 柔性供应链方案：强调我方快速响应的生产能力和定制化服务，可以满足其不同渠道的订单需求，缓解其供应链压力。
+3. 价格优势：提供一个有竞争力的长期合作报价，并展示我们的质量控制体系，突出高性价比优势。</textarea>
+</div>
+</div>
+</div>
+</div>
+</div>
+<footer class="sticky bottom-0 bg-white/80 dark:bg-background-dark/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-800 px-6 py-4 md:px-10">
+<div class="flex justify-end gap-3">
+<button class="flex h-11 items-center justify-center rounded-lg bg-gray-200 dark:bg-gray-800 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700" type="button">上一步</button>
+<button class="flex h-11 items-center justify-center rounded-lg bg-primary px-6 text-sm font-semibold text-white hover:bg-primary/90 disabled:bg-primary/50 disabled:cursor-not-allowed" type="submit">下一步</button>
+</div>
+</footer>
+</main>
+</div>
+<script>
+    // Simple script to simulate loading and showing content
+    // In a real application, this would be triggered by an event, like a button click from the previous step.
+    document.addEventListener('DOMContentLoaded', () => {
+        const loadingState = document.getElementById('loading-state');
+        const reportContent = document.getElementById('report-content');
+        // To demonstrate, we'll start with the loading state shown
+        loadingState.classList.remove('hidden');
+        loadingState.classList.add('flex');
+        reportContent.classList.add('hidden');
+        // Simulate a 2-second loading time
+        setTimeout(() => {
+            loadingState.classList.add('hidden');
+            loadingState.classList.remove('flex');
+            reportContent.classList.remove('hidden');
+        }, 2000);
+    });
+</script>
+
+</body></html>
