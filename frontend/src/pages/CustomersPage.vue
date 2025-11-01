@@ -66,6 +66,9 @@
               <td>{{ formatDisplayDate(customer.last_followup_at) }}</td>
               <td class="actions">
                 <button type="button" @click="openEditor(customer.id)">编辑</button>
+                <button type="button" :disabled="isRerunLoading(customer.id)" @click="handleRerun(customer.id)">
+                  {{ isRerunLoading(customer.id) ? '重新运行中…' : '重新运行' }}
+                </button>
                 <button type="button" class="danger" @click="confirmDelete(customer)">删除</button>
               </td>
             </tr>
@@ -143,6 +146,20 @@ const formatDisplayDate = (value) => {
 
 const openEditor = async (customerId) => {
   await customersStore.fetchDetail(customerId)
+}
+
+const rerunLoading = reactive({})
+
+const isRerunLoading = (customerId) => Boolean(customerId && rerunLoading[customerId])
+
+const handleRerun = async (customerId) => {
+  if (!customerId || isRerunLoading(customerId)) return
+  rerunLoading[customerId] = true
+  try {
+    await customersStore.rerunAutomation(customerId)
+  } finally {
+    rerunLoading[customerId] = false
+  }
 }
 
 const closeEditor = () => {
@@ -309,6 +326,13 @@ onUnmounted(() => {
 .customers__table td.actions button.danger:hover {
   background: rgba(239, 68, 68, 0.1);
   border-color: rgba(239, 68, 68, 0.7);
+}
+
+.customers__table td.actions button:disabled {
+  background: var(--surface-subtle);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+  opacity: 0.8;
 }
 
 .empty {

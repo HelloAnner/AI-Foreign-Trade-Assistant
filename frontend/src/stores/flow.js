@@ -291,11 +291,25 @@ export const useFlowStore = defineStore('flow', {
         let response
         if (this.customerId) {
           response = await updateCompany(this.customerId, payload)
+          if (!response?.ok) {
+            const message = response?.error || '更新客户信息失败'
+            if (!silent) {
+              ui.pushToast(message, 'error')
+            }
+            throw new Error(message)
+          }
           if (!silent) {
             ui.pushToast('客户信息已更新', 'success')
           }
         } else {
           response = await createCompany(payload)
+          if (!response?.ok) {
+            const message = response?.error || '客户信息保存失败'
+            if (!silent) {
+              ui.pushToast(message, 'error')
+            }
+            throw new Error(message)
+          }
           if (!silent) {
             ui.pushToast('客户信息已保存', 'success')
           }
@@ -332,12 +346,10 @@ export const useFlowStore = defineStore('flow', {
       }
     },
     async queueAutomation(query) {
-      const ui = useUiStore()
       const trimmed = (query || '').trim()
       if (!trimmed) {
         return Promise.resolve(null)
       }
-      ui.pushToast('提交成功，后台自动分析已排队', 'success')
       return new Promise((resolve, reject) => {
         this.automationBacklog.push({ query: trimmed, resolve, reject })
         this.processAutomationQueue()
@@ -410,10 +422,16 @@ export const useFlowStore = defineStore('flow', {
         let job = responseData?.automation_job || this.automationJob || null
         if (!job && this.customerId) {
           const automationPayload = await enqueueAutomation(this.customerId)
-          job = automationPayload?.data || null
-          if (job) {
-            this.setAutomationJob(job)
+          if (!automationPayload?.ok) {
+            throw new Error(automationPayload?.error || '触发自动分析失败')
           }
+          job = automationPayload?.data || null
+        }
+        if (job) {
+          this.setAutomationJob(job)
+          ui.pushToast('提交成功，后台自动分析已排队', 'success')
+        } else {
+          ui.pushToast('客户信息已保存', 'success')
         }
         this.query = ''
         return job

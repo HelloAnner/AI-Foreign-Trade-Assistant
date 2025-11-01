@@ -1,5 +1,10 @@
 import { defineStore } from 'pinia'
-import { listCustomers, getCustomerDetail, deleteCustomer as deleteCustomerRequest } from '../api/customers'
+import {
+  listCustomers,
+  getCustomerDetail,
+  deleteCustomer as deleteCustomerRequest,
+  triggerAutomation,
+} from '../api/customers'
 import { useUiStore } from './ui'
 
 export const useCustomersStore = defineStore('customers', {
@@ -86,6 +91,32 @@ export const useCustomersStore = defineStore('customers', {
         console.error('Failed to delete customer', error)
         ui.pushToast(error.message, 'error')
         return false
+      }
+    },
+    async rerunAutomation(customerId) {
+      const ui = useUiStore()
+      if (!customerId) {
+        ui.pushToast('无效的客户 ID', 'error')
+        return null
+      }
+      try {
+        const payload = await triggerAutomation(customerId)
+        if (!payload.ok) {
+          ui.pushToast(payload.error || '触发自动分析失败', 'error')
+          return null
+        }
+        ui.pushToast('后台开始自动分析', 'success')
+        if (this.detail && this.detail.id === customerId) {
+          this.detail = {
+            ...this.detail,
+            automation_job: payload.data || null,
+          }
+        }
+        return payload.data || null
+      } catch (error) {
+        console.error('Failed to rerun automation', error)
+        ui.pushToast(error.message, 'error')
+        return null
       }
     },
   },

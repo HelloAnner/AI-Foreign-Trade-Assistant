@@ -323,6 +323,73 @@ func (s *Store) FindCustomerByQuery(ctx context.Context, query string) (*domain.
 	return &customer, contacts, nil
 }
 
+func (s *Store) customerExistsByNameOrWebsite(ctx context.Context, name, website string) (bool, error) {
+	if s == nil || s.DB == nil {
+		return false, fmt.Errorf("store not initialized")
+	}
+	normalizedName := strings.ToLower(strings.TrimSpace(name))
+	normalizedWebsite := normalizeWebsiteForCompare(website)
+
+	exists, err := s.existsWithQuery(ctx, "SELECT 1 FROM customers WHERE lower(name) = ? LIMIT 1", normalizedName != "", normalizedName)
+	if err != nil || exists {
+		return exists, err
+	}
+	exists, err = s.existsWithQuery(ctx,
+		`SELECT 1 FROM customers
+         WHERE lower(rtrim(replace(replace(replace(website, 'https://', ''), 'http://', ''), 'www.', ''), '/')) = ?
+         LIMIT 1`,
+		normalizedWebsite != "",
+		normalizedWebsite,
+	)
+	if err != nil || exists {
+		return exists, err
+	}
+
+	conditions := make([]string, 0, 2)
+	args := make([]any, 0, 2)
+	if normalizedName != "" {
+		conditions = append(conditions, "lower(c.name) = ?")
+		args = append(args, normalizedName)
+	}
+	if normalizedWebsite != "" {
+		conditions = append(conditions, "lower(rtrim(replace(replace(replace(c.website, 'https://', ''), 'http://', ''), 'www.', ''), '/')) = ?")
+		args = append(args, normalizedWebsite)
+	}
+	if len(conditions) == 0 {
+		return false, nil
+	}
+
+	query := `
+        SELECT 1
+        FROM automation_jobs aj
+        JOIN customers c ON c.id = aj.customer_id
+        WHERE aj.status IN (?, ?)
+          AND (` + strings.Join(conditions, " OR ") + `)
+        LIMIT 1`
+	params := append([]any{domain.AutomationStatusQueued, domain.AutomationStatusRunning}, args...)
+	exists, err = s.existsWithQuery(ctx, query, true, params...)
+	if err != nil || exists {
+		return exists, err
+	}
+
+	return false, nil
+}
+
+func (s *Store) existsWithQuery(ctx context.Context, query string, enabled bool, args ...any) (bool, error) {
+	if !enabled {
+		return false, nil
+	}
+	row := s.DB.QueryRowContext(ctx, query, args...)
+	var dummy int
+	if err := row.Scan(&dummy); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("query existence failed: %w", err)
+	}
+	return true, nil
+}
+
 // CreateCustomer inserts a new customer with associated contacts.
 func (s *Store) CreateCustomer(ctx context.Context, req *domain.CreateCompanyRequest) (int64, error) {
 	if s == nil || s.DB == nil {
@@ -333,6 +400,12 @@ func (s *Store) CreateCustomer(ctx context.Context, req *domain.CreateCompanyReq
 	}
 	if strings.TrimSpace(req.Name) == "" {
 		return 0, fmt.Errorf("客户名称不能为空")
+	}
+
+	if exists, err := s.customerExistsByNameOrWebsite(ctx, req.Name, req.Website); err != nil {
+		return 0, err
+	} else if exists {
+		return 0, fmt.Errorf("客户已存在")
 	}
 
 	source := req.SourceJSON
