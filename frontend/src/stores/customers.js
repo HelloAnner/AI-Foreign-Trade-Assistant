@@ -146,13 +146,13 @@ export const useCustomersStore = defineStore('customers', {
         ui.pushToast('无效的客户 ID', 'error')
         return null
       }
+      ui.pushToast('添加成功，开始排队分析', 'success')
       try {
         const payload = await triggerAutomation(customerId)
         if (!payload.ok) {
           ui.pushToast(payload.error || '触发自动分析失败', 'error')
           return null
         }
-        ui.pushToast('后台开始自动分析', 'success')
         if (this.detail && this.detail.id === customerId) {
           this.detail = {
             ...this.detail,

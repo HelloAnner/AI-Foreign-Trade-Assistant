@@ -77,6 +77,34 @@ func (s *Store) GetLatestAutomationJob(ctx context.Context, customerID int64) (*
 	return job, nil
 }
 
+// GetActiveAutomationJob returns the latest queued or running job for a customer.
+func (s *Store) GetActiveAutomationJob(ctx context.Context, customerID int64) (*domain.AutomationJob, error) {
+	if s == nil || s.DB == nil {
+		return nil, fmt.Errorf("store not initialized")
+	}
+	if customerID <= 0 {
+		return nil, fmt.Errorf("invalid customer id")
+	}
+	row := s.DB.QueryRowContext(ctx,
+		`SELECT id, customer_id, status, stage, last_error, started_at, finished_at, created_at, updated_at
+         FROM automation_jobs
+         WHERE customer_id = ? AND status IN (?, ?)
+         ORDER BY id DESC
+         LIMIT 1`,
+		customerID,
+		domain.AutomationStatusQueued,
+		domain.AutomationStatusRunning,
+	)
+	job, err := scanAutomationJob(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return job, nil
+}
+
 // ClaimNextAutomationJob transitions the next queued job to running.
 func (s *Store) ClaimNextAutomationJob(ctx context.Context) (*domain.AutomationJob, error) {
 	if s == nil || s.DB == nil {

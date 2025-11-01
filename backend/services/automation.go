@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -19,6 +20,9 @@ type AutomationServiceImpl struct {
 	scheduler SchedulerService
 }
 
+// ErrAutomationJobExists indicates a queued or running automation job already exists.
+var ErrAutomationJobExists = errors.New("automation job already in progress")
+
 // NewAutomationService constructs an automation service instance.
 func NewAutomationService(st *store.Store, grader GradingService, analyst AnalysisService, email EmailComposerService, scheduler SchedulerService) *AutomationServiceImpl {
 	return &AutomationServiceImpl{store: st, grader: grader, analyst: analyst, email: email, scheduler: scheduler}
@@ -26,6 +30,13 @@ func NewAutomationService(st *store.Store, grader GradingService, analyst Analys
 
 // Enqueue registers a new automation workflow for the given customer.
 func (s *AutomationServiceImpl) Enqueue(ctx context.Context, customerID int64) (*domain.AutomationJob, error) {
+	existing, err := s.store.GetActiveAutomationJob(ctx, customerID)
+	if err != nil {
+		return existing, err
+	}
+	if existing != nil {
+		return existing, ErrAutomationJobExists
+	}
 	return s.store.CreateAutomationJob(ctx, customerID)
 }
 

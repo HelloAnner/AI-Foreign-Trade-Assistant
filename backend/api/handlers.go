@@ -266,8 +266,15 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("fetch settings for automation failed: %v", err)
 		} else if settings.AutomationEnabled {
-			if job, err := h.ServiceBundle.Automation.Enqueue(r.Context(), id); err != nil {
-				log.Printf("enqueue automation job failed (customer %d): %v", id, err)
+			job, err := h.ServiceBundle.Automation.Enqueue(r.Context(), id)
+			if err != nil {
+				if errors.Is(err, services.ErrAutomationJobExists) {
+					if job != nil {
+						payload["automation_job"] = job
+					}
+				} else {
+					log.Printf("enqueue automation job failed (customer %d): %v", id, err)
+				}
 			} else if job != nil {
 				payload["automation_job"] = job
 			}
@@ -307,6 +314,10 @@ func (h *Handlers) EnqueueAutomation(w http.ResponseWriter, r *http.Request) {
 	}
 	job, err := h.ServiceBundle.Automation.Enqueue(r.Context(), customerID)
 	if err != nil {
+		if errors.Is(err, services.ErrAutomationJobExists) {
+			writeJSON(w, http.StatusConflict, Response{OK: false, Error: "自动分析任务已在排队或执行中"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
 		return
 	}
