@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/mozillazg/go-pinyin"
 
 	"github.com/anner/ai-foreign-trade-assistant/backend/domain"
 )
@@ -23,21 +26,42 @@ type CustomerListFilter struct {
 	Offset  int
 }
 
+// CustomerListResult wraps paginated summaries.
+type CustomerListResult struct {
+	Items  []domain.CustomerSummary `json:"items"`
+	Total  int                      `json:"total"`
+	Limit  int                      `json:"limit"`
+	Offset int                      `json:"offset"`
+}
+
 // ListCustomers returns lightweight summaries for the management table.
-func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) ([]domain.CustomerSummary, error) {
+func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) (*CustomerListResult, error) {
 	if s == nil || s.DB == nil {
 		return nil, fmt.Errorf("store not initialized")
+	}
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 8
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
 	}
 
 	baseQuery := `
         SELECT
             c.id,
             c.name,
+            c.website,
             c.country,
             COALESCE(NULLIF(upper(c.grade), ''), 'UNKNOWN') AS grade,
             c.updated_at,
-            COALESCE(MAX(f.updated_at), '') AS last_followup_at,
-            COALESCE(MIN(CASE WHEN st.status = 'scheduled' THEN st.due_at END), '') AS next_followup_at
+            MAX(f.updated_at) AS last_followup_at,
+            MIN(CASE WHEN st.status = 'scheduled' THEN st.due_at END) AS next_followup_at
         FROM customers c
         LEFT JOIN followups f ON f.customer_id = c.id
         LEFT JOIN scheduled_tasks st ON st.customer_id = c.id
@@ -66,37 +90,7 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) ([
 
 	baseQuery += " GROUP BY c.id"
 
-	orderBy := " ORDER BY c.updated_at DESC"
-	switch filter.Sort {
-	case "name_asc":
-		orderBy = " ORDER BY c.name COLLATE NOCASE ASC"
-	case "name_desc":
-		orderBy = " ORDER BY c.name COLLATE NOCASE DESC"
-	case "grade_desc":
-		orderBy = " ORDER BY grade DESC, c.updated_at DESC"
-	case "grade_asc":
-		orderBy = " ORDER BY grade ASC, c.updated_at DESC"
-	case "last_followup_asc":
-		orderBy = " ORDER BY (last_followup_at = ''), last_followup_at ASC"
-	case "last_followup_desc":
-		orderBy = " ORDER BY (last_followup_at = ''), last_followup_at DESC"
-	case "next_followup_asc":
-		orderBy = " ORDER BY (next_followup_at = ''), next_followup_at ASC"
-	case "next_followup_desc":
-		orderBy = " ORDER BY (next_followup_at = ''), next_followup_at DESC"
-	}
-	// SQLite does not understand NULLS LAST, so emulate by coalescing.
-	query := baseQuery + orderBy
-	if filter.Limit > 0 {
-		query += " LIMIT ?"
-		args = append(args, filter.Limit)
-	}
-	if filter.Offset > 0 {
-		query += " OFFSET ?"
-		args = append(args, filter.Offset)
-	}
-
-	rows, err := s.DB.QueryContext(ctx, query, args...)
+	rows, err := s.DB.QueryContext(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("查询客户列表失败: %w", err)
 	}
@@ -104,6 +98,7 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) ([
 
 	summaries := make([]domain.CustomerSummary, 0)
 	now := time.Now().UTC()
+	searchTerm := strings.TrimSpace(filter.Search)
 
 	for rows.Next() {
 		var (
@@ -112,9 +107,25 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) ([
 			updated sql.NullString
 			last    sql.NullString
 			next    sql.NullString
+			website sql.NullString
 		)
-		if err := rows.Scan(&summary.ID, &summary.Name, &summary.Country, &grade, &updated, &last, &next); err != nil {
+		if err := rows.Scan(
+			&summary.ID,
+			&summary.Name,
+			&website,
+			&summary.Country,
+			&grade,
+			&updated,
+			&last,
+			&next,
+		); err != nil {
 			return nil, fmt.Errorf("解析客户列表失败: %w", err)
+		}
+
+		name := strings.TrimSpace(summary.Name)
+		web := strings.TrimSpace(website.String)
+		if searchTerm != "" && !matchesSearchTerm(name, web, searchTerm) {
+			continue
 		}
 
 		summary.Grade = "UNKNOWN"
@@ -123,13 +134,13 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) ([
 		}
 
 		if updated.Valid {
-			summary.UpdatedAt = updated.String
+			summary.UpdatedAt = strings.TrimSpace(updated.String)
 		}
 		if last.Valid {
-			summary.LastFollowupAt = last.String
+			summary.LastFollowupAt = strings.TrimSpace(last.String)
 		}
 		if next.Valid {
-			summary.NextFollowupAt = next.String
+			summary.NextFollowupAt = strings.TrimSpace(next.String)
 		}
 
 		summary.Status = deriveCustomerStatus(summary, now)
@@ -142,7 +153,31 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) ([
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("遍历客户列表失败: %w", err)
 	}
-	return summaries, nil
+
+	total := len(summaries)
+
+	sortCustomers(summaries, filter.Sort)
+
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+
+	paged := make([]domain.CustomerSummary, 0)
+	if start < end {
+		paged = append(paged, summaries[start:end]...)
+	}
+
+	return &CustomerListResult{
+		Items:  paged,
+		Total:  total,
+		Limit:  limit,
+		Offset: start,
+	}, nil
 }
 
 func deriveCustomerStatus(summary domain.CustomerSummary, now time.Time) string {
@@ -162,6 +197,154 @@ func deriveCustomerStatus(summary domain.CustomerSummary, now time.Time) string 
 		return "in_progress"
 	}
 	return "pending"
+}
+
+func sortCustomers(items []domain.CustomerSummary, sortKey string) {
+	switch sortKey {
+	case "name_asc":
+		sort.SliceStable(items, func(i, j int) bool {
+			return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+		})
+	case "name_desc":
+		sort.SliceStable(items, func(i, j int) bool {
+			return strings.ToLower(items[i].Name) > strings.ToLower(items[j].Name)
+		})
+	case "last_followup_asc":
+		sort.SliceStable(items, func(i, j int) bool {
+			ti := parseTimeValue(items[i].LastFollowupAt)
+			tj := parseTimeValue(items[j].LastFollowupAt)
+			if ti.IsZero() && tj.IsZero() {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			if ti.IsZero() {
+				return false
+			}
+			if tj.IsZero() {
+				return true
+			}
+			if ti.Equal(tj) {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			return ti.Before(tj)
+		})
+	case "last_followup_desc":
+		sort.SliceStable(items, func(i, j int) bool {
+			ti := parseTimeValue(items[i].LastFollowupAt)
+			tj := parseTimeValue(items[j].LastFollowupAt)
+			if ti.IsZero() && tj.IsZero() {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			if ti.IsZero() {
+				return false
+			}
+			if tj.IsZero() {
+				return true
+			}
+			if ti.Equal(tj) {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			return ti.After(tj)
+		})
+	default:
+		sort.SliceStable(items, func(i, j int) bool {
+			ti := parseTimeValue(items[i].UpdatedAt)
+			tj := parseTimeValue(items[j].UpdatedAt)
+			if ti.IsZero() && tj.IsZero() {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			if ti.IsZero() {
+				return false
+			}
+			if tj.IsZero() {
+				return true
+			}
+			if ti.Equal(tj) {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			return ti.After(tj)
+		})
+	}
+}
+
+func parseTimeValue(value string) time.Time {
+	if strings.TrimSpace(value) == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+func matchesSearchTerm(name, website, query string) bool {
+	q := strings.TrimSpace(strings.ToLower(query))
+	if q == "" {
+		return true
+	}
+	nameLower := strings.ToLower(strings.TrimSpace(name))
+	if strings.Contains(nameLower, q) {
+		return true
+	}
+	websiteLower := strings.ToLower(strings.TrimSpace(website))
+	if websiteLower != "" && strings.Contains(websiteLower, q) {
+		return true
+	}
+	compactQuery := normalizeSearchToken(q)
+	if compactQuery == "" {
+		return true
+	}
+	if strings.Contains(normalizeSearchToken(nameLower), compactQuery) {
+		return true
+	}
+	if websiteLower != "" && strings.Contains(normalizeSearchToken(websiteLower), compactQuery) {
+		return true
+	}
+	full, initials := buildPinyinVariants(nameLower)
+	if full != "" && strings.Contains(full, compactQuery) {
+		return true
+	}
+	if initials != "" && strings.Contains(initials, compactQuery) {
+		return true
+	}
+	return false
+}
+
+func buildPinyinVariants(raw string) (string, string) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", ""
+	}
+	args := pinyin.NewArgs()
+	args.Style = pinyin.Normal
+	args.Heteronym = false
+	syllables := pinyin.Pinyin(trimmed, args)
+	if len(syllables) == 0 {
+		return "", ""
+	}
+	var full strings.Builder
+	var initials strings.Builder
+	for _, s := range syllables {
+		if len(s) == 0 {
+			continue
+		}
+		sy := normalizeSearchToken(s[0])
+		if sy == "" {
+			continue
+		}
+		full.WriteString(sy)
+		initials.WriteByte(sy[0])
+	}
+	return full.String(), initials.String()
+}
+
+func normalizeSearchToken(value string) string {
+	lowered := strings.ToLower(strings.TrimSpace(value))
+	lowered = strings.ReplaceAll(lowered, " ", "")
+	lowered = strings.ReplaceAll(lowered, "-", "")
+	lowered = strings.ReplaceAll(lowered, "_", "")
+	lowered = strings.ReplaceAll(lowered, ".", "")
+	return lowered
 }
 
 // GetCustomerDetail loads all persisted information for a specific customer.

@@ -2,6 +2,14 @@
   <FlowLayout :step="0" :total="0" title="客户列表" subtitle="集中查看并维护所有客户数据。">
     <section class="customers">
       <header class="customers__toolbar">
+        <form class="customers__search" @submit.prevent="applySearch">
+          <input
+            v-model="searchInput"
+            type="search"
+            placeholder="搜索客户名称或拼音"
+          />
+          <button type="submit">搜索</button>
+        </form>
         <label class="customers__filter">
           <span>评级</span>
           <select v-model="selectedFilters.grade" @change="onSelectChange('grade', selectedFilters.grade)">
@@ -75,6 +83,14 @@
           </tbody>
         </table>
       </div>
+
+      <div v-if="!loading && (total || items.length)" class="customers__pagination">
+        <button type="button" :disabled="!canPrev" @click="goPrev">上一页</button>
+        <span class="customers__pagination-info">
+          第 {{ page }} / {{ pageCount }} 页（共 {{ total }} 条）
+        </span>
+        <button type="button" :disabled="!canNext" @click="goNext">下一页</button>
+      </div>
     </section>
 
     <CustomerEditModal
@@ -88,14 +104,14 @@
 </template>
 
 <script setup>
-import { computed, reactive, onMounted, watch, onUnmounted } from 'vue'
+import { computed, reactive, ref, onMounted, watch, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import FlowLayout from '../components/flow/FlowLayout.vue'
 import CustomerEditModal from '../components/customers/CustomerEditModal.vue'
 import { useCustomersStore } from '../stores/customers'
 
 const customersStore = useCustomersStore()
-const { items, loading, detail, detailLoading, filters } = storeToRefs(customersStore)
+const { items, loading, detail, detailLoading, filters, total, page, pageSize } = storeToRefs(customersStore)
 
 const selectedFilters = reactive({
   grade: filters.value.grade,
@@ -103,6 +119,8 @@ const selectedFilters = reactive({
   status: filters.value.status,
   sort: filters.value.sort,
 })
+
+const searchInput = ref(filters.value.q || '')
 
 const gradeOptions = computed(() => {
   const set = new Set(['S', 'A', 'B', 'C'])
@@ -136,13 +154,37 @@ watch(filters, (value) => {
   selectedFilters.country = value.country
   selectedFilters.status = value.status
   selectedFilters.sort = value.sort
+  searchInput.value = value.q || ''
 })
+
+const applySearch = () => {
+  customersStore.setFilter('q', searchInput.value.trim())
+  refreshList()
+}
+
+watch(
+  searchInput,
+  (value, previous) => {
+    if (value.trim() === '' && previous && previous.trim() !== '') {
+      applySearch()
+    }
+  }
+)
 
 const formatDisplayDate = (value) => {
   if (!value) return '—'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString()
 }
+
+const pageCount = computed(() => {
+  const size = pageSize.value > 0 ? pageSize.value : 1
+  const count = Math.ceil((total.value || 0) / size)
+  return Math.max(1, count || 1)
+})
+
+const canPrev = computed(() => page.value > 1)
+const canNext = computed(() => page.value < pageCount.value)
 
 const openEditor = async (customerId) => {
   await customersStore.fetchDetail(customerId)
@@ -169,6 +211,16 @@ const closeEditor = () => {
 const onCustomerUpdated = () => {
   closeEditor()
   refreshList()
+}
+
+const goPrev = () => {
+  if (!canPrev.value) return
+  customersStore.setPage(page.value - 1)
+}
+
+const goNext = () => {
+  if (!canNext.value) return
+  customersStore.setPage(page.value + 1)
 }
 
 const confirmDelete = async (customer) => {
@@ -200,6 +252,39 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 16px;
   align-items: center;
+}
+
+.customers__search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid var(--border-default);
+}
+
+.customers__search input {
+  border: none;
+  padding: 8px 12px;
+  font-size: 13px;
+  min-width: 200px;
+  outline: none;
+}
+
+.customers__search button {
+  border: none;
+  background: var(--primary-500);
+  color: #fff;
+  border-radius: 10px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.customers__search button:hover {
+  background: var(--primary-600);
 }
 
 .customers__filter {
@@ -335,6 +420,40 @@ onUnmounted(() => {
   opacity: 0.8;
 }
 
+.customers__pagination {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.customers__pagination button {
+  border: 1px solid var(--border-default);
+  background: #fff;
+  border-radius: 10px;
+  padding: 6px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.customers__pagination button:hover:not(:disabled) {
+  background: var(--surface-subtle);
+}
+
+.customers__pagination button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.customers__pagination-info {
+  min-width: 160px;
+  text-align: center;
+}
+
 .empty {
   text-align: center;
   padding: 40px 12px;
@@ -344,6 +463,8 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .customers__toolbar {
     gap: 12px;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .customers__filter {
@@ -352,6 +473,15 @@ onUnmounted(() => {
 
   .customers__filter select {
     width: 100%;
+  }
+
+  .customers__search {
+    width: 100%;
+  }
+
+  .customers__search input {
+    flex: 1;
+    min-width: 0;
   }
 }
 </style>

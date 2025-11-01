@@ -11,6 +11,9 @@ export const useCustomersStore = defineStore('customers', {
   state: () => ({
     loading: false,
     items: [],
+    total: 0,
+    page: 1,
+    pageSize: 8,
     filters: {
       grade: '',
       country: '',
@@ -22,18 +25,54 @@ export const useCustomersStore = defineStore('customers', {
     detail: null,
   }),
   actions: {
-    async fetchList(extra = {}) {
+    async fetchList(extra = {}, options = {}) {
       const ui = useUiStore()
       this.loading = true
       try {
-        const params = {
-          ...this.filters,
-          ...extra,
-        }
+        const { skipAdjust = false } = options || {}
+        const params = { ...this.filters, ...extra }
         if (!params.q) delete params.q
+
+        let limit = Number(params.limit ?? this.pageSize)
+        if (!Number.isFinite(limit) || limit <= 0) {
+          limit = this.pageSize || 8
+        }
+        params.limit = limit
+
+        let offset = Number(params.offset ?? (this.page - 1) * limit)
+        if (!Number.isFinite(offset) || offset < 0) {
+          offset = 0
+        }
+        params.offset = offset
+
         const payload = await listCustomers(params)
         if (payload.ok) {
-          this.items = payload.data || []
+          const data = payload.data || {}
+          this.items = Array.isArray(data.items) ? data.items : []
+          this.total = Number.isFinite(data.total) ? data.total : 0
+          const serverLimit = Number(data.limit ?? limit)
+          this.pageSize = serverLimit > 0 ? serverLimit : limit
+          const serverOffset = Number(data.offset ?? offset)
+          this.page = Math.floor(serverOffset / this.pageSize) + 1
+          if (this.total === 0) {
+            this.page = 1
+          }
+
+          if (!skipAdjust && this.total > 0 && serverOffset >= this.total && this.page > 1) {
+            const maxPage = Math.max(1, Math.ceil(this.total / this.pageSize))
+            if (this.page > maxPage) {
+              this.page = maxPage
+              await this.fetchList(
+                {
+                  ...extra,
+                  limit: this.pageSize,
+                  offset: (this.page - 1) * this.pageSize,
+                },
+                { skipAdjust: true }
+              )
+              return
+            }
+          }
         } else {
           ui.pushToast(payload.error || '加载客户列表失败', 'error')
         }
@@ -47,7 +86,15 @@ export const useCustomersStore = defineStore('customers', {
     setFilter(key, value) {
       if (Object.prototype.hasOwnProperty.call(this.filters, key)) {
         this.filters[key] = value
+        this.page = 1
       }
+    },
+    async setPage(page) {
+      const target = Number.isInteger(page) ? page : 1
+      const normalized = Math.max(1, target)
+      if (normalized === this.page) return
+      this.page = normalized
+      await this.fetchList()
     },
     async fetchDetail(customerId) {
       const ui = useUiStore()

@@ -71,12 +71,12 @@ func (h *Handlers) ListCustomers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	customers, err := h.Store.ListCustomers(r.Context(), filter)
+	result, err := h.Store.ListCustomers(r.Context(), filter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, Response{OK: true, Data: customers})
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: result})
 }
 
 // GetCustomerDetail exposes all persisted information for a customer.
