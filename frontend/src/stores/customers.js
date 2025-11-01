@@ -18,7 +18,7 @@ export const useCustomersStore = defineStore('customers', {
       grade: '',
       country: '',
       status: '',
-      sort: 'last_followup_desc',
+      sort: 'created_desc',
       q: '',
     },
     detailLoading: false,

@@ -55,6 +55,9 @@ func (s *AutomationServiceImpl) runJob(ctx context.Context, job *domain.Automati
 	if requiredGrade == "" {
 		requiredGrade = "A"
 	}
+	if requiredGrade == "S" {
+		requiredGrade = "A"
+	}
 
 	// Stage: grading
 	if err := s.store.UpdateAutomationJobStage(ctx, job.ID, domain.AutomationStageGrading); err != nil {

@@ -165,9 +165,9 @@ C级：暂无明确需求，仅收集资料。"
             <label>
               <span>继续分析的最低评级</span>
               <select v-model="local.automation_required_grade">
-                <option value="S">S 级</option>
                 <option value="A">A级</option>
                 <option value="B">B级</option>
+                <option value="C">C级</option>
               </select>
             </label>
           </div>

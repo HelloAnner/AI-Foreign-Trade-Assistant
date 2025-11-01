@@ -59,6 +59,7 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) (*
             c.website,
             c.country,
             COALESCE(NULLIF(upper(c.grade), ''), 'UNKNOWN') AS grade,
+            c.created_at,
             c.updated_at,
             MAX(f.updated_at) AS last_followup_at,
             MIN(CASE WHEN st.status = 'scheduled' THEN st.due_at END) AS next_followup_at
@@ -104,6 +105,7 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) (*
 		var (
 			summary domain.CustomerSummary
 			grade   sql.NullString
+			created sql.NullString
 			updated sql.NullString
 			last    sql.NullString
 			next    sql.NullString
@@ -115,6 +117,7 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) (*
 			&website,
 			&summary.Country,
 			&grade,
+			&created,
 			&updated,
 			&last,
 			&next,
@@ -133,6 +136,9 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) (*
 			summary.Grade = strings.ToUpper(strings.TrimSpace(grade.String))
 		}
 
+		if created.Valid {
+			summary.CreatedAt = strings.TrimSpace(created.String)
+		}
 		if updated.Valid {
 			summary.UpdatedAt = strings.TrimSpace(updated.String)
 		}
@@ -181,10 +187,6 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) (*
 }
 
 func deriveCustomerStatus(summary domain.CustomerSummary, now time.Time) string {
-	grade := strings.ToUpper(strings.TrimSpace(summary.Grade))
-	if grade == "S" {
-		return "won"
-	}
 	if summary.NextFollowupAt != "" {
 		if due, err := time.Parse(time.RFC3339, summary.NextFollowupAt); err == nil {
 			if due.After(now) || due.IsZero() {
@@ -208,6 +210,78 @@ func sortCustomers(items []domain.CustomerSummary, sortKey string) {
 	case "name_desc":
 		sort.SliceStable(items, func(i, j int) bool {
 			return strings.ToLower(items[i].Name) > strings.ToLower(items[j].Name)
+		})
+	case "created_asc":
+		sort.SliceStable(items, func(i, j int) bool {
+			ti := parseTimeValue(items[i].CreatedAt)
+			tj := parseTimeValue(items[j].CreatedAt)
+			if ti.IsZero() && tj.IsZero() {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			if ti.IsZero() {
+				return false
+			}
+			if tj.IsZero() {
+				return true
+			}
+			if ti.Equal(tj) {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			return ti.Before(tj)
+		})
+	case "created_desc":
+		sort.SliceStable(items, func(i, j int) bool {
+			ti := parseTimeValue(items[i].CreatedAt)
+			tj := parseTimeValue(items[j].CreatedAt)
+			if ti.IsZero() && tj.IsZero() {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			if ti.IsZero() {
+				return false
+			}
+			if tj.IsZero() {
+				return true
+			}
+			if ti.Equal(tj) {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			return ti.After(tj)
+		})
+	case "updated_asc":
+		sort.SliceStable(items, func(i, j int) bool {
+			ti := parseTimeValue(items[i].UpdatedAt)
+			tj := parseTimeValue(items[j].UpdatedAt)
+			if ti.IsZero() && tj.IsZero() {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			if ti.IsZero() {
+				return false
+			}
+			if tj.IsZero() {
+				return true
+			}
+			if ti.Equal(tj) {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			return ti.Before(tj)
+		})
+	case "updated_desc":
+		sort.SliceStable(items, func(i, j int) bool {
+			ti := parseTimeValue(items[i].UpdatedAt)
+			tj := parseTimeValue(items[j].UpdatedAt)
+			if ti.IsZero() && tj.IsZero() {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			if ti.IsZero() {
+				return false
+			}
+			if tj.IsZero() {
+				return true
+			}
+			if ti.Equal(tj) {
+				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+			}
+			return ti.After(tj)
 		})
 	case "last_followup_asc":
 		sort.SliceStable(items, func(i, j int) bool {
@@ -247,8 +321,8 @@ func sortCustomers(items []domain.CustomerSummary, sortKey string) {
 		})
 	default:
 		sort.SliceStable(items, func(i, j int) bool {
-			ti := parseTimeValue(items[i].UpdatedAt)
-			tj := parseTimeValue(items[j].UpdatedAt)
+			ti := parseTimeValue(items[i].CreatedAt)
+			tj := parseTimeValue(items[j].CreatedAt)
 			if ti.IsZero() && tj.IsZero() {
 				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
 			}

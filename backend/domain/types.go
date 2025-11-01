@@ -198,6 +198,7 @@ type CustomerSummary struct {
 	Name           string `json:"name"`
 	Country        string `json:"country"`
 	Grade          string `json:"grade"`
+	CreatedAt      string `json:"created_at"`
 	UpdatedAt      string `json:"updated_at"`
 	LastFollowupAt string `json:"last_followup_at,omitempty"`
 	NextFollowupAt string `json:"next_followup_at,omitempty"`

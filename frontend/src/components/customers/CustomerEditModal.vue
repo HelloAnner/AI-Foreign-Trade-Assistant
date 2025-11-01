@@ -63,7 +63,6 @@
               <span>最终评级</span>
               <select v-model="form.grade">
                 <option value="">未评级</option>
-                <option value="S">S</option>
                 <option value="A">A</option>
                 <option value="B">B</option>
                 <option value="C">C</option>

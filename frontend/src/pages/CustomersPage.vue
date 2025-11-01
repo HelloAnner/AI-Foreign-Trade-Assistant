@@ -36,6 +36,8 @@
         <label class="customers__filter">
           <span>排序</span>
           <select v-model="selectedFilters.sort" @change="onSelectChange('sort', selectedFilters.sort)">
+            <option value="created_desc">按添加时间（新 → 旧）</option>
+            <option value="created_asc">按添加时间（旧 → 新）</option>
             <option value="last_followup_desc">按最近跟进</option>
             <option value="last_followup_asc">按最早跟进</option>
             <option value="name_asc">按公司名 A → Z</option>
@@ -65,7 +67,7 @@
             <tr v-for="customer in items" :key="customer.id">
               <td class="name">
                 <p class="title">{{ customer.name }}</p>
-                <p class="hint">最近更新时间：{{ formatDisplayDate(customer.updated_at) }}</p>
+                <p class="hint">添加时间：{{ formatDisplayDate(customer.created_at || customer.updated_at) }}</p>
               </td>
               <td>{{ customer.country || '—' }}</td>
               <td>
@@ -123,9 +125,12 @@ const selectedFilters = reactive({
 const searchInput = ref(filters.value.q || '')
 
 const gradeOptions = computed(() => {
-  const set = new Set(['S', 'A', 'B', 'C'])
+  const set = new Set(['A', 'B', 'C'])
   items.value.forEach((item) => {
-    if (item.grade) set.add(item.grade)
+    const grade = (item.grade || '').toUpperCase()
+    if (grade && grade !== 'S') {
+      set.add(grade)
+    }
   })
   return Array.from(set)
 })
@@ -174,7 +179,17 @@ watch(
 const formatDisplayDate = (value) => {
   if (!value) return '—'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString()
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  const formatter = new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  return formatter.format(date)
 }
 
 const pageCount = computed(() => {

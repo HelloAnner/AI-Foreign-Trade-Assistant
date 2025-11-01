@@ -40,7 +40,11 @@ export const useSettingsStore = defineStore('settings', {
       try {
         const payload = await fetchSettings()
         if (payload.ok) {
-          this.data = { ...this.data, ...payload.data }
+          const incoming = { ...payload.data }
+          if ((incoming.automation_required_grade || '').toUpperCase() === 'S') {
+            incoming.automation_required_grade = 'A'
+          }
+          this.data = { ...this.data, ...incoming }
           this.loaded = true
         } else if (payload.error) {
           ui.pushToast(payload.error, 'error')
@@ -61,7 +65,11 @@ export const useSettingsStore = defineStore('settings', {
         const payload = await saveSettings({ ...this.data, ...partial })
         if (payload.ok) {
           const latest = payload.data || partial
-          this.data = { ...this.data, ...latest }
+          const normalized = { ...latest }
+          if ((normalized.automation_required_grade || '').toUpperCase() === 'S') {
+            normalized.automation_required_grade = 'A'
+          }
+          this.data = { ...this.data, ...normalized }
           ui.pushToast('配置已保存', 'success')
           this.loaded = true
         } else if (payload.error) {
