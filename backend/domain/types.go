@@ -2,6 +2,23 @@ package domain
 
 import "encoding/json"
 
+const (
+	AutomationStatusQueued    = "queued"
+	AutomationStatusRunning   = "running"
+	AutomationStatusCompleted = "completed"
+	AutomationStatusFailed    = "failed"
+)
+
+const (
+	AutomationStagePending   = "pending"
+	AutomationStageGrading   = "grading"
+	AutomationStageAnalysis  = "analysis"
+	AutomationStageEmail     = "email"
+	AutomationStageFollowup  = "followup"
+	AutomationStageCompleted = "completed"
+	AutomationStageStopped   = "stopped"
+)
+
 // Contact captures a potential customer contact.
 type Contact struct {
 	Name   string `json:"name"`
@@ -41,6 +58,7 @@ type ResolveCompanyResponse struct {
 	EmailDraft    *EmailDraftResponse `json:"email_draft,omitempty"`
 	FollowupID    int64               `json:"followup_id,omitempty"`
 	ScheduledTask *ScheduledTask      `json:"scheduled_task,omitempty"`
+	AutomationJob *AutomationJob      `json:"automation_job,omitempty"`
 }
 
 // CreateCompanyRequest persists the curated Step 1 output.
@@ -161,6 +179,19 @@ type ScheduledTask struct {
 	UpdatedAt        string `json:"updated_at"`
 }
 
+// AutomationJob describes a background automation workflow execution.
+type AutomationJob struct {
+	ID         int64  `json:"id"`
+	CustomerID int64  `json:"customer_id"`
+	Status     string `json:"status"`
+	Stage      string `json:"stage"`
+	LastError  string `json:"last_error,omitempty"`
+	StartedAt  string `json:"started_at,omitempty"`
+	FinishedAt string `json:"finished_at,omitempty"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
 // CustomerSummary represents the lightweight information shown in the customer list.
 type CustomerSummary struct {
 	ID             int64  `json:"id"`
@@ -187,6 +218,7 @@ type CustomerDetail struct {
 	EmailDraft    *EmailDraftResponse `json:"email_draft,omitempty"`
 	FollowupID    int64               `json:"followup_id,omitempty"`
 	ScheduledTask *ScheduledTask      `json:"scheduled_task,omitempty"`
+	AutomationJob *AutomationJob      `json:"automation_job,omitempty"`
 	SourceJSON    json.RawMessage     `json:"source_json,omitempty"`
 	CreatedAt     string              `json:"created_at"`
 	UpdatedAt     string              `json:"updated_at"`

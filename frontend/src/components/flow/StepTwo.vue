@@ -5,24 +5,41 @@
     title="Step 2: AI 辅助客户价值评级"
     subtitle="系统根据客户画像自动给出评级，确认后进入下一步。"
   >
+    <p v-if="automationActive" class="automation-hint">后台自动化正在完成评级，请稍候…</p>
     <section class="rating-card">
       <div v-if="!flowStore.customerId" class="rating-card__placeholder">请先完成 Step 1 并保存客户信息。</div>
       <div v-else class="rating-card__content">
-        <div v-if="flowStore.loading.grade || !flowStore.gradeSuggestion" class="rating-card__spinner">
+        <div
+          v-if="(automationActive || flowStore.loading.grade) && !flowStore.gradeFinal"
+          class="rating-card__spinner"
+        >
           <div class="spinner"></div>
-          <p>AI 正在进行价值评估…</p>
+          <p>{{ automationActive ? '后台自动化处理中…' : 'AI 正在进行价值评估…' }}</p>
         </div>
-        <template v-else>
+        <template v-else-if="flowStore.gradeSuggestion">
           <p class="label">AI 推荐评级</p>
           <div class="badge" :class="`badge--${flowStore.gradeSuggestion.suggested_grade.toLowerCase()}`">
             {{ flowStore.gradeSuggestion.suggested_grade }}级
           </div>
           <p class="reason">理由：{{ flowStore.gradeSuggestion.reason }}</p>
           <div class="actions">
-            <button type="button" class="solid" @click="handleConfirm('A')">确认 A级（继续分析）</button>
-            <button type="button" class="outline" @click="handleConfirm('B')">调整为 B级（归档）</button>
-            <button type="button" class="outline" @click="handleConfirm('C')">调整为 C级（忽略）</button>
+            <button type="button" class="solid" :disabled="automationActive" @click="handleConfirm('A')">
+              确认 A级（继续分析）
+            </button>
+            <button type="button" class="outline" :disabled="automationActive" @click="handleConfirm('B')">
+              调整为 B级（归档）
+            </button>
+            <button type="button" class="outline" :disabled="automationActive" @click="handleConfirm('C')">
+              调整为 C级（忽略）
+            </button>
           </div>
+        </template>
+        <template v-else-if="flowStore.gradeFinal">
+          <p class="label">当前等级</p>
+          <div class="badge" :class="`badge--${flowStore.gradeFinal.grade.toLowerCase()}`">
+            {{ flowStore.gradeFinal.grade }}级
+          </div>
+          <p v-if="flowStore.gradeFinal.reason" class="reason">理由：{{ flowStore.gradeFinal.reason }}</p>
         </template>
         <div v-if="flowStore.gradeFinal" class="status">
           <span>当前等级：{{ flowStore.gradeFinal.grade }}</span>
@@ -34,15 +51,20 @@
 </template>
 
 <script setup>
-import { inject, onMounted, watch } from 'vue'
+import { inject, onMounted, watch, computed } from 'vue'
 import FlowLayout from './FlowLayout.vue'
 import { useFlowStore } from '../../stores/flow'
 
 const flowStore = useFlowStore()
 const nav = inject('flowNav', {})
 
+const automationActive = computed(() => {
+  const status = String(flowStore.automationJob?.status || '').toLowerCase()
+  return status === 'queued' || status === 'running'
+})
+
 const ensureGrade = () => {
-  if (!flowStore.customerId || flowStore.loading.grade) return
+  if (!flowStore.customerId || flowStore.loading.grade || automationActive.value) return
   if (!flowStore.gradeSuggestion) {
     flowStore.fetchGrade()
   }
@@ -56,6 +78,15 @@ watch(
   () => flowStore.customerId,
   () => {
     ensureGrade()
+  }
+)
+
+watch(
+  () => automationActive.value,
+  (value) => {
+    if (!value) {
+      ensureGrade()
+    }
   }
 )
 
@@ -82,6 +113,16 @@ const handleConfirm = async (grade) => {
   flex-direction: column;
   align-items: center;
   gap: 24px;
+  text-align: center;
+}
+
+.automation-hint {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--primary-600);
+  font-size: 14px;
   text-align: center;
 }
 

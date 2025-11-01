@@ -31,6 +31,7 @@ func Router(h *Handlers) http.Handler {
 
 		api.Post("/companies/resolve", h.ResolveCompany)
 		api.Post("/companies", h.CreateCompany)
+		api.Post("/companies/{id}/automation", h.EnqueueAutomation)
 		api.Put("/companies/{id}", h.UpdateCompany)
 		api.Post("/companies/{id}/contacts", h.ReplaceContacts)
 		api.Post("/companies/{id}/grade/suggest", h.SuggestGrade)

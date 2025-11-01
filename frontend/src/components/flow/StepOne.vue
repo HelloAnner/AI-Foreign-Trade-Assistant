@@ -32,6 +32,15 @@
       </div>
     </section>
 
+    <section v-if="automationJob" class="automation-banner" :class="automationBannerClass">
+      <span class="material">autorenew</span>
+      <div class="automation-banner__content">
+        <p>{{ automationMessage }}</p>
+        <small v-if="automationJob.last_error && automationStatus === 'failed'">{{ automationJob.last_error }}</small>
+        <small v-else-if="automationStatus === 'running' && automationStageLabel">当前阶段：{{ automationStageLabel }}</small>
+      </div>
+    </section>
+
     <section class="card">
       <header class="card__head">
         <div>
@@ -69,8 +78,10 @@
 import { inject, onMounted, reactive, ref, watch, computed } from 'vue'
 import FlowLayout from './FlowLayout.vue'
 import { useFlowStore } from '../../stores/flow'
+import { useUiStore } from '../../stores/ui'
 
 const flowStore = useFlowStore()
+const uiStore = useUiStore()
 const nav = inject('flowNav', { goNext: () => {} })
 
 const defaultCountries = ['美国', '中国', '加拿大', '德国', '法国', '英国', '日本', '新加坡', '澳大利亚', 'United States', 'Canada', 'Germany', 'France', 'United Kingdom', 'Japan', 'Singapore', 'Australia']
@@ -185,10 +196,60 @@ const sanitizedContacts = computed(() =>
   }))
 )
 
+const automationJob = computed(() => flowStore.automationJob)
+const automationStatus = computed(() => String(automationJob.value?.status || '').toLowerCase())
+const automationActive = computed(() => automationStatus.value === 'queued' || automationStatus.value === 'running')
+const automationStage = computed(() => String(automationJob.value?.stage || '').toLowerCase())
+
+const stageLabelMap = {
+  grading: '智能评级',
+  analysis: '客户分析',
+  email: '开发信生成',
+  followup: '自动跟进设置',
+}
+
+const automationStageLabel = computed(() => {
+  if (!automationJob.value) return ''
+  return stageLabelMap[automationStage.value] || automationJob.value.stage || ''
+})
+
+const automationMessage = computed(() => {
+  const status = automationStatus.value
+  if (!automationJob.value) {
+    return ''
+  }
+  if (status === 'queued') {
+    return '后台自动化流程已排队，系统将依次完成剩余步骤。'
+  }
+  if (status === 'running') {
+    const stageLabel = automationStageLabel.value || '自动化处理'
+    return `后台正在执行：${stageLabel}…`
+  }
+  if (status === 'failed') {
+    return '自动化流程执行失败，请查看提示并手动处理。'
+  }
+  if (status === 'completed') {
+    if (automationStage.value === 'stopped') {
+      return automationJob.value.last_error || '自动化已结束。'
+    }
+    return '自动化流程已完成，数据已更新。'
+  }
+  return '自动化流程状态已更新。'
+})
+
+const automationBannerClass = computed(() => {
+  const status = automationStatus.value
+  if (status === 'failed') return 'automation-banner--error'
+  if (status === 'completed' && automationStage.value === 'stopped') return 'automation-banner--warning'
+  if (status === 'completed') return 'automation-banner--success'
+  return 'automation-banner--info'
+})
+
 const nextDisabled = computed(() => {
   if (flowStore.resolving) return true
   if (!companyForm.website.trim()) return true
   if (!companyForm.country.trim()) return true
+  if (automationActive.value) return true
   return false
 })
 
@@ -204,13 +265,21 @@ const handleNext = async () => {
     companyForm.name = flowStore.query || companyForm.website
   }
   flowStore.contacts = sanitizedContacts.value
-  await flowStore.saveCompany({
-    name: companyForm.name,
-    website: companyForm.website,
-    country: companyForm.country,
-    summary: companyForm.summary,
-  })
-  nav.goNext?.()
+  try {
+    await flowStore.saveCompany({
+      name: companyForm.name,
+      website: companyForm.website,
+      country: companyForm.country,
+      summary: companyForm.summary,
+    })
+    if (automationActive.value || automationStatus.value === 'queued' || automationStatus.value === 'running') {
+      uiStore.pushToast('客户信息已保存，后台自动化流程将继续完成后续步骤。', 'info')
+      return
+    }
+    nav.goNext?.()
+  } catch (error) {
+    // 错误已在 store 内部提示
+  }
 }
 </script>
 
@@ -291,6 +360,62 @@ label.full {
   color: var(--text-primary);
   text-align: left;
   white-space: pre-wrap;
+}
+
+.automation-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-card);
+}
+
+.automation-banner .material {
+  font-size: 20px;
+  color: var(--primary-500);
+}
+
+.automation-banner__content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+
+.automation-banner__content p {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.automation-banner--info {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.automation-banner--success {
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.automation-banner--success .material {
+  color: #16a34a;
+}
+
+.automation-banner--warning {
+  background: rgba(234, 179, 8, 0.12);
+}
+
+.automation-banner--warning .material {
+  color: #d97706;
+}
+
+.automation-banner--error {
+  background: rgba(248, 113, 113, 0.14);
+}
+
+.automation-banner--error .material {
+  color: #ef4444;
 }
 
 input,

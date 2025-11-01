@@ -12,7 +12,9 @@ import {
   updateEmailDraft,
   saveFirstFollowup,
   scheduleFollowup,
+  enqueueAutomation,
 } from '../api/flow'
+import { getCustomerDetail } from '../api/customers'
 import { useUiStore } from './ui'
 
 const humanizeUnit = (unit) => {
@@ -69,6 +71,8 @@ export const useFlowStore = defineStore('flow', {
     emailDraft: null,
     followupId: null,
     scheduledTask: null,
+    automationJob: null,
+    _automationTimer: null,
     loading: {
       grade: false,
       analysis: false,
@@ -79,6 +83,7 @@ export const useFlowStore = defineStore('flow', {
   }),
   actions: {
     resetFlow() {
+      this.stopAutomationPolling()
       this.step = 1
       this.query = ''
       this.resolving = false
@@ -94,6 +99,7 @@ export const useFlowStore = defineStore('flow', {
       this.emailDraft = null
       this.followupId = null
       this.scheduledTask = null
+      this.automationJob = null
       this.loading = {
         grade: false,
         analysis: false,
@@ -102,6 +108,141 @@ export const useFlowStore = defineStore('flow', {
         schedule: false,
       }
     },
+    setAutomationJob(job) {
+      if (job) {
+        this.automationJob = { ...job }
+        const status = String(job.status || '').toLowerCase()
+        if (status === 'queued' || status === 'running') {
+          this.startAutomationPolling()
+        } else {
+          this.stopAutomationPolling()
+        }
+      } else {
+        this.automationJob = null
+        this.stopAutomationPolling()
+      }
+    },
+    startAutomationPolling() {
+      if (this._automationTimer) return
+      this._automationTimer = window.setInterval(() => {
+        this.refreshCustomerDetail(true)
+      }, 4000)
+    },
+    stopAutomationPolling() {
+      if (this._automationTimer) {
+        window.clearInterval(this._automationTimer)
+        this._automationTimer = null
+      }
+    },
+    async refreshCustomerDetail(silent = false) {
+      if (!this.customerId) return
+      const ui = useUiStore()
+      try {
+        const payload = await getCustomerDetail(this.customerId)
+        if (payload.ok && payload.data) {
+          const detail = payload.data || {}
+          const normalized = { ...detail, customer_id: detail.id }
+          const hasAutomation = Object.prototype.hasOwnProperty.call(normalized, 'automation_job')
+          this.applyResolvedData(normalized)
+          if (!hasAutomation && this.automationJob) {
+            this.setAutomationJob(null)
+          }
+          const job = hasAutomation ? normalized.automation_job : this.automationJob
+          const status = job?.status ? String(job.status).toLowerCase() : ''
+          if (!job || (status !== 'queued' && status !== 'running')) {
+            this.stopAutomationPolling()
+          }
+        } else if (!silent) {
+          ui.pushToast(payload.error || '刷新客户信息失败', 'error')
+        }
+      } catch (error) {
+        if (!silent) {
+          console.error('Failed to refresh customer detail', error)
+          ui.pushToast(error.message, 'error')
+        }
+      }
+    },
+    applyResolvedData(payload = {}) {
+      if (!payload || typeof payload !== 'object') return
+
+      const customerId = payload.customer_id ?? payload.id ?? null
+      if (customerId) {
+        this.customerId = customerId
+      }
+
+      if (Array.isArray(payload.contacts)) {
+        this.contacts = payload.contacts.map((item, index) => ({
+          name: item.name?.trim() || '',
+          title: item.title?.trim() || '',
+          email: item.email?.trim() || '',
+          phone: item.phone?.trim() || '',
+          source: item.source?.trim() || '',
+          is_key: index === 0 || Boolean(item.is_key),
+        }))
+      }
+
+      if (payload.summary !== undefined && payload.summary !== null) {
+        this.summary = payload.summary
+      }
+      if (payload.country) {
+        this.country = payload.country
+      }
+      if (payload.website) {
+        this.website = payload.website
+      }
+      if (payload.name) {
+        this.query = this.query || payload.name
+      }
+
+      const normalizedGrade = (payload.grade || '').toUpperCase()
+      if (normalizedGrade && normalizedGrade !== 'UNKNOWN') {
+        this.gradeFinal = {
+          grade: normalizedGrade,
+          reason: payload.grade_reason || '',
+        }
+      } else if (Object.prototype.hasOwnProperty.call(payload, 'grade')) {
+        this.gradeFinal = null
+      }
+
+      if (payload.analysis) {
+        this.analysis = { ...payload.analysis }
+      } else if (Object.prototype.hasOwnProperty.call(payload, 'analysis') && !payload.analysis) {
+        this.analysis = null
+      }
+
+      if (payload.email_draft) {
+        this.emailDraft = { ...payload.email_draft }
+      } else if (Object.prototype.hasOwnProperty.call(payload, 'email_draft') && !payload.email_draft) {
+        this.emailDraft = null
+      }
+
+      if (Object.prototype.hasOwnProperty.call(payload, 'followup_id')) {
+        this.followupId = payload.followup_id || null
+      }
+
+      if (Object.prototype.hasOwnProperty.call(payload, 'scheduled_task')) {
+        this.scheduledTask = payload.scheduled_task || null
+      }
+
+      if (Object.prototype.hasOwnProperty.call(payload, 'automation_job')) {
+        this.setAutomationJob(payload.automation_job)
+      }
+
+      const lastStep = Number(payload.last_step || 0)
+      if (lastStep > 0) {
+        this.step = Math.max(this.step, lastStep)
+      }
+
+      const base = this.resolveResult && typeof this.resolveResult === 'object' ? this.resolveResult : {}
+      const merged = { ...base, ...payload }
+      if (customerId) {
+        merged.customer_id = customerId
+      }
+      if (Array.isArray(this.contacts) && this.contacts.length) {
+        merged.contacts = this.contacts.map((item) => ({ ...item }))
+      }
+      this.resolveResult = merged
+    },
   async startResolve(query) {
     const ui = useUiStore()
     this.resolving = true
@@ -109,28 +250,9 @@ export const useFlowStore = defineStore('flow', {
     try {
       const payload = await resolveCompany(query)
       const data = payload.data || {}
-      this.resolveResult = data
-      this.contacts = (data.contacts || []).map((item) => ({ ...item }))
-      this.summary = data.summary || ''
-      this.country = data.country || ''
-      this.website = data.website || ''
-
+      this.applyResolvedData(data)
       if (data.customer_id) {
-        this.customerId = data.customer_id
-        const normalizedGrade = (data.grade || '').toUpperCase()
-        if (normalizedGrade && normalizedGrade !== 'UNKNOWN') {
-          this.gradeFinal = {
-            grade: normalizedGrade,
-            reason: data.grade_reason || '',
-          }
-        } else {
-          this.gradeFinal = null
-        }
-        this.analysis = data.analysis ? { ...data.analysis } : null
-        this.emailDraft = data.email_draft ? { ...data.email_draft } : null
-        this.followupId = data.followup_id || null
-        this.scheduledTask = data.scheduled_task || null
-        this.step = Math.max(1, data.last_step || 1)
+        this.step = Math.max(1, data.last_step || this.step || 1)
       } else {
         this.customerId = null
         this.gradeFinal = null
@@ -138,6 +260,7 @@ export const useFlowStore = defineStore('flow', {
         this.emailDraft = null
         this.followupId = null
         this.scheduledTask = null
+        this.setAutomationJob(null)
         this.step = 1
       }
       this.gradeSuggestion = null
@@ -147,45 +270,120 @@ export const useFlowStore = defineStore('flow', {
       this.resolving = false
     }
     },
-  async saveCompany(company) {
-    const ui = useUiStore()
-    const payload = {
-      name: company.name,
-      website: company.website || this.website,
-      country: company.country || this.country,
-      summary: company.summary || this.summary,
-      contacts: this.contacts,
-    }
-    if (this.resolveResult && typeof this.resolveResult === 'object') {
-      payload.source_json = this.resolveResult
-    }
-    try {
-      if (this.customerId) {
-        await updateCompany(this.customerId, payload)
-        ui.pushToast('客户信息已更新', 'success')
-      } else {
-        const response = await createCompany(payload)
-        this.customerId = response.data.customer_id
-        ui.pushToast('客户信息已保存', 'success')
+    async saveCompany(company, options = {}) {
+      const ui = useUiStore()
+      const { silent = false, advanceStep = true } = options || {}
+      const payload = {
+        name: company.name,
+        website: company.website || this.website,
+        country: company.country || this.country,
+        summary: company.summary || this.summary,
+        contacts: this.contacts,
       }
-      this.website = payload.website
-      this.country = payload.country
-      this.summary = payload.summary
-      this.step = Math.max(this.step, 2)
-      this.resolveResult = {
-        ...(this.resolveResult && typeof this.resolveResult === 'object' ? this.resolveResult : {}),
-        customer_id: this.customerId,
-        name: payload.name,
-        website: payload.website,
-        country: payload.country,
-        summary: payload.summary,
-        contacts: (payload.contacts || []).map((item) => ({ ...item })),
-        last_step: Math.max(this.step, 2),
+      if (this.resolveResult && typeof this.resolveResult === 'object') {
+        payload.source_json = this.resolveResult
       }
-    } catch (error) {
-      ui.pushToast(error.message, 'error')
-    }
-  },
+      try {
+        let response
+        if (this.customerId) {
+          response = await updateCompany(this.customerId, payload)
+          if (!silent) {
+            ui.pushToast('客户信息已更新', 'success')
+          }
+        } else {
+          response = await createCompany(payload)
+          if (!silent) {
+            ui.pushToast('客户信息已保存', 'success')
+          }
+        }
+        const responseData = response?.data || {}
+        if (!this.customerId && responseData.customer_id) {
+          this.customerId = responseData.customer_id
+        }
+        if (Object.prototype.hasOwnProperty.call(responseData, 'automation_job')) {
+          this.setAutomationJob(responseData.automation_job)
+        }
+        this.website = payload.website
+        this.country = payload.country
+        this.summary = payload.summary
+        const nextStep = advanceStep ? Math.max(this.step, 2) : this.step
+        this.step = nextStep
+        this.resolveResult = {
+          ...(this.resolveResult && typeof this.resolveResult === 'object' ? this.resolveResult : {}),
+          customer_id: this.customerId,
+          name: payload.name,
+          website: payload.website,
+          country: payload.country,
+          summary: payload.summary,
+          contacts: (payload.contacts || []).map((item) => ({ ...item })),
+          last_step: nextStep,
+          automation_job: this.automationJob,
+        }
+        return responseData
+      } catch (error) {
+        if (!silent) {
+          ui.pushToast(error.message, 'error')
+        }
+        throw error
+      }
+    },
+    async queueAutomation(query) {
+      const ui = useUiStore()
+      const trimmed = (query || '').trim()
+      if (!trimmed) {
+        return null
+      }
+      if (this.resolving) {
+        return null
+      }
+      ui.pushToast('提交成功，后台自动分析已排队', 'success')
+      this.resolving = true
+      try {
+        const payload = await resolveCompany(trimmed)
+        const data = payload?.data || {}
+        if (data && trimmed && !data.name) {
+          data.name = trimmed
+        }
+        this.applyResolvedData(data)
+        this.query = trimmed
+        if (!Array.isArray(this.contacts) || !this.contacts.length) {
+          const contacts = Array.isArray(data.contacts)
+            ? data.contacts.map((contact, index) => ({
+                name: contact.name?.trim() || '',
+                title: contact.title?.trim() || '',
+                email: contact.email?.trim() || '',
+                phone: contact.phone?.trim() || '',
+                source: contact.source?.trim() || '',
+                is_key: index === 0 || Boolean(contact.is_key),
+              }))
+            : []
+          this.contacts = contacts
+        }
+        const responseData = await this.saveCompany(
+          {
+            name: (data.name || trimmed).trim() || trimmed,
+            website: data.website || '',
+            country: data.country || '',
+            summary: data.summary || '',
+          },
+          { silent: true, advanceStep: false }
+        )
+        let job = responseData?.automation_job || this.automationJob || null
+        if (!job && this.customerId) {
+          const automationPayload = await enqueueAutomation(this.customerId)
+          job = automationPayload?.data || null
+          if (job) {
+            this.setAutomationJob(job)
+          }
+        }
+        return job
+      } catch (error) {
+        ui.pushToast(error.message, 'error')
+        throw error
+      } finally {
+        this.resolving = false
+      }
+    },
     async updateContacts(contacts) {
       const ui = useUiStore()
       this.contacts = contacts

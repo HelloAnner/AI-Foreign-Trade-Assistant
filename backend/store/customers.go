@@ -225,6 +225,12 @@ func (s *Store) GetCustomerDetail(ctx context.Context, customerID int64) (*domai
 		return nil, err
 	}
 
+	if job, err := s.GetLatestAutomationJob(ctx, customerID); err == nil {
+		detail.AutomationJob = job
+	} else if err != nil {
+		return nil, err
+	}
+
 	return detail, nil
 }
 

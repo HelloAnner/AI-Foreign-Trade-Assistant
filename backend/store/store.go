@@ -143,6 +143,18 @@ func (s *Store) InitSchema(ctx context.Context) error {
 			FOREIGN KEY(context_email_id) REFERENCES emails(id) ON DELETE SET NULL,
 			FOREIGN KEY(generated_email_id) REFERENCES emails(id) ON DELETE SET NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS automation_jobs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			customer_id INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			stage TEXT NOT NULL,
+			last_error TEXT,
+			started_at TEXT,
+			finished_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+		);`,
 		`CREATE TABLE IF NOT EXISTS logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			level TEXT,

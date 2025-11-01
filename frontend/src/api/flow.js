@@ -65,6 +65,11 @@ export const scheduleFollowup = async (payload) => {
   return data
 }
 
+export const enqueueAutomation = async (customerId) => {
+  const { data } = await http.post(`/companies/${customerId}/automation`)
+  return data
+}
+
 export const listScheduledTasks = async (status) => {
   const { data } = await http.get('/scheduled-tasks', {
     params: { status },

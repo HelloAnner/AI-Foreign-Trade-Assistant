@@ -23,6 +23,7 @@ type Bundle struct {
 	Analyst       AnalysisService
 	EmailComposer EmailComposerService
 	Scheduler     SchedulerService
+	Automation    AutomationService
 }
 
 // Options describes dependencies shared across services.
@@ -76,6 +77,12 @@ type SchedulerService interface {
 	RunNow(ctx context.Context, taskID int64) error
 }
 
+// AutomationService coordinates end-to-end background workflows.
+type AutomationService interface {
+	Enqueue(ctx context.Context, customerID int64) (*domain.AutomationJob, error)
+	ProcessNext(ctx context.Context) (bool, error)
+}
+
 // NewStubBundle provides placeholder implementations for early scaffolding.
 func NewStubBundle() *Bundle {
 	return &Bundle{
@@ -87,6 +94,7 @@ func NewStubBundle() *Bundle {
 		Analyst:       stubAnalyst{},
 		EmailComposer: stubEmailComposer{},
 		Scheduler:     stubScheduler{},
+		Automation:    stubAutomation{},
 	}
 }
 
@@ -158,6 +166,16 @@ func (stubScheduler) RunNow(ctx context.Context, taskID int64) error {
 	return ErrNotImplemented
 }
 
+type stubAutomation struct{}
+
+func (stubAutomation) Enqueue(ctx context.Context, customerID int64) (*domain.AutomationJob, error) {
+	return nil, ErrNotImplemented
+}
+
+func (stubAutomation) ProcessNext(ctx context.Context) (bool, error) {
+	return false, ErrNotImplemented
+}
+
 // NewBundle wires production implementations backed by the provided store and HTTP client.
 func NewBundle(opts Options) *Bundle {
 	httpClient := opts.HTTPClient
@@ -177,6 +195,7 @@ func NewBundle(opts Options) *Bundle {
 	analyst := NewAnalysisService(opts.Store, llmClient)
 	emailComposer := NewEmailComposerService(opts.Store, llmClient)
 	scheduler := NewSchedulerService(opts.Store, emailComposer, mailer)
+	automation := NewAutomationService(opts.Store, grader, analyst, emailComposer, scheduler)
 
 	return &Bundle{
 		LLM:           llmClient,
@@ -187,5 +206,6 @@ func NewBundle(opts Options) *Bundle {
 		Analyst:       analyst,
 		EmailComposer: emailComposer,
 		Scheduler:     scheduler,
+		Automation:    automation,
 	}
 }

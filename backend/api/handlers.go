@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -218,6 +219,13 @@ func (h *Handlers) ResolveCompany(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if job, err := h.Store.GetLatestAutomationJob(r.Context(), existing.ID); err == nil && job != nil {
+			response.AutomationJob = job
+		} else if err != nil {
+			writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
+			return
+		}
+
 		if lastStep <= 0 {
 			lastStep = 1
 		}
@@ -250,7 +258,59 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, Response{OK: true, Data: map[string]int64{"customer_id": id}})
+
+	payload := map[string]interface{}{"customer_id": id}
+
+	if h.ServiceBundle != nil && h.ServiceBundle.Automation != nil {
+		settings, err := h.Store.GetSettings(r.Context())
+		if err != nil {
+			log.Printf("fetch settings for automation failed: %v", err)
+		} else if settings.AutomationEnabled {
+			if job, err := h.ServiceBundle.Automation.Enqueue(r.Context(), id); err != nil {
+				log.Printf("enqueue automation job failed (customer %d): %v", id, err)
+			} else if job != nil {
+				payload["automation_job"] = job
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: payload})
+}
+
+// EnqueueAutomation manually enqueues a background automation job for a customer.
+func (h *Handlers) EnqueueAutomation(w http.ResponseWriter, r *http.Request) {
+	if h.ServiceBundle == nil || h.ServiceBundle.Automation == nil {
+		writeJSON(w, http.StatusServiceUnavailable, Response{OK: false, Error: "自动化服务未启用"})
+		return
+	}
+	customerID, err := parseID(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	if _, err := h.Store.GetCustomer(r.Context(), customerID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, Response{OK: false, Error: "客户不存在"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
+		return
+	}
+	settings, err := h.Store.GetSettings(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
+		return
+	}
+	if !settings.AutomationEnabled {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: "自动化模式未开启"})
+		return
+	}
+	job, err := h.ServiceBundle.Automation.Enqueue(r.Context(), customerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: job})
 }
 
 // UpdateCompany updates Step 1 information for an existing customer.

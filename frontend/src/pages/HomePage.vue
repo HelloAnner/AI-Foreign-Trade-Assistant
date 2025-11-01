@@ -11,7 +11,7 @@
           placeholder="例如：环球贸易有限公司 或 https://www.example.com"
         />
         <button type="submit" :disabled="!queryInput || flowStore.resolving">
-          {{ flowStore.resolving ? '分析中…' : '开始分析' }}
+          {{ submitLabel }}
         </button>
       </form>
     </section>
@@ -19,15 +19,26 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import FlowLayout from '../components/flow/FlowLayout.vue'
 import { useRouter } from 'vue-router'
 import { useFlowStore } from '../stores/flow'
+import { useSettingsStore } from '../stores/settings'
 
 const router = useRouter()
 const flowStore = useFlowStore()
+const settingsStore = useSettingsStore()
 
 const queryInput = ref(flowStore.query)
+
+const automationEnabled = computed(() => Boolean(settingsStore.data.automation_enabled))
+
+const submitLabel = computed(() => {
+  if (flowStore.resolving && !automationEnabled.value) {
+    return '分析中…'
+  }
+  return automationEnabled.value ? '开始后台自动分析' : flowStore.resolving ? '分析中…' : '开始分析'
+})
 
 watch(
   () => flowStore.query,
@@ -38,9 +49,27 @@ watch(
   }
 )
 
+onMounted(() => {
+  settingsStore.fetchSettings()
+})
+
 const handleSubmit = async () => {
   const trimmed = (queryInput.value || '').trim()
-  if (!trimmed) return
+  if (!trimmed || flowStore.resolving) return
+
+  if (!settingsStore.loaded && !settingsStore.loading) {
+    await settingsStore.fetchSettings()
+  }
+
+  if (automationEnabled.value) {
+    try {
+      await flowStore.queueAutomation(trimmed)
+    } catch (error) {
+      // errors are surfaced via toast in the store
+    }
+    return
+  }
+
   await flowStore.startResolve(trimmed)
   if (!flowStore.resolving) {
     router.push({ name: 'flow' })

@@ -8,7 +8,7 @@
     <section class="analysis">
       <div v-if="flowStore.loading.analysis" class="analysis__loading">
         <div class="spinner"></div>
-        <p>正在生成切入点分析…</p>
+        <p>{{ automationActive ? '后台自动化正在生成切入点分析…' : '正在生成切入点分析…' }}</p>
         <small>AI 正在为您深度分析客户需求，请稍候。</small>
       </div>
       <div v-else-if="!flowStore.analysis" class="analysis__empty">
@@ -48,7 +48,12 @@
 
     <template #footer>
       <button class="ghost" type="button" @click="nav.goPrev?.()">返回上一步</button>
-      <button class="primary" type="button" :disabled="!flowStore.analysis || flowStore.loading.analysis" @click="handleNext">
+      <button
+        class="primary"
+        type="button"
+        :disabled="!flowStore.analysis || flowStore.loading.analysis || automationActive"
+        @click="handleNext"
+      >
         保存并继续
       </button>
     </template>
@@ -56,7 +61,7 @@
 </template>
 
 <script setup>
-import { inject, onMounted, ref } from 'vue'
+import { inject, onMounted, ref, computed, watch } from 'vue'
 import FlowLayout from './FlowLayout.vue'
 import { useFlowStore } from '../../stores/flow'
 
@@ -64,8 +69,13 @@ const flowStore = useFlowStore()
 const nav = inject('flowNav', {})
 const editing = ref(false)
 
+const automationActive = computed(() => {
+  const status = String(flowStore.automationJob?.status || '').toLowerCase()
+  return status === 'queued' || status === 'running'
+})
+
 const ensureAnalysis = () => {
-  if (!flowStore.customerId || flowStore.loading.analysis) return
+  if (!flowStore.customerId || flowStore.loading.analysis || automationActive.value) return
   if (!flowStore.analysis) {
     flowStore.fetchAnalysis()
   }
@@ -74,6 +84,15 @@ const ensureAnalysis = () => {
 onMounted(() => {
   ensureAnalysis()
 })
+
+watch(
+  () => automationActive.value,
+  (value) => {
+    if (!value) {
+      ensureAnalysis()
+    }
+  }
+)
 
 const generateAnalysis = () => {
   ensureAnalysis()

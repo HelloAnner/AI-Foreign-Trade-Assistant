@@ -4,6 +4,7 @@ import { useUiStore } from './ui'
 
 const defaultState = () => ({
   loading: false,
+  loaded: false,
   data: {
     llm_base_url: '',
     llm_api_key: '',
@@ -27,19 +28,28 @@ const defaultState = () => ({
 export const useSettingsStore = defineStore('settings', {
   state: defaultState,
   actions: {
-    async fetchSettings() {
+    async fetchSettings(force = false) {
       const ui = useUiStore()
+      if (this.loading) {
+        return
+      }
+      if (this.loaded && !force) {
+        return
+      }
       this.loading = true
       try {
         const payload = await fetchSettings()
         if (payload.ok) {
           this.data = { ...this.data, ...payload.data }
+          this.loaded = true
         } else if (payload.error) {
           ui.pushToast(payload.error, 'error')
+          this.loaded = false
         }
       } catch (error) {
         console.error('Failed to load settings', error)
         ui.pushToast(error.message, 'error')
+        this.loaded = false
       } finally {
         this.loading = false
       }
@@ -53,6 +63,7 @@ export const useSettingsStore = defineStore('settings', {
           const latest = payload.data || partial
           this.data = { ...this.data, ...latest }
           ui.pushToast('配置已保存', 'success')
+          this.loaded = true
         } else if (payload.error) {
           ui.pushToast(payload.error, 'error')
         }

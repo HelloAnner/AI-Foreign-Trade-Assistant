@@ -8,7 +8,7 @@
     <section class="mail-card">
       <div v-if="flowStore.loading.email" class="mail-card__loading">
         <div class="spinner"></div>
-        <p>正在生成个性化开发信…</p>
+        <p>{{ automationActive ? '后台自动化正在生成个性化开发信…' : '正在生成个性化开发信…' }}</p>
       </div>
       <div v-else-if="!flowStore.emailDraft" class="mail-card__empty">
         <p>尚未生成开发信草稿，点击下方按钮立即生成。</p>
@@ -34,7 +34,7 @@
       <button
         class="primary"
         type="button"
-        :disabled="!flowStore.emailDraft || flowStore.loading.followup || flowStore.loading.email"
+        :disabled="!flowStore.emailDraft || flowStore.loading.followup || flowStore.loading.email || automationActive"
         @click="handleSave"
       >
         {{ flowStore.loading.followup ? '保存中…' : '保存为首次跟进记录' }}
@@ -44,7 +44,7 @@
 </template>
 
 <script setup>
-import { inject, onMounted, ref } from 'vue'
+import { inject, onMounted, ref, computed, watch } from 'vue'
 import FlowLayout from './FlowLayout.vue'
 import { useFlowStore } from '../../stores/flow'
 
@@ -52,8 +52,13 @@ const flowStore = useFlowStore()
 const nav = inject('flowNav', {})
 const followupNotes = ref('')
 
+const automationActive = computed(() => {
+  const status = String(flowStore.automationJob?.status || '').toLowerCase()
+  return status === 'queued' || status === 'running'
+})
+
 const ensureEmailDraft = () => {
-  if (!flowStore.customerId || flowStore.loading.email) return
+  if (!flowStore.customerId || flowStore.loading.email || automationActive.value) return
   if (!flowStore.emailDraft) {
     flowStore.generateEmail()
   }
@@ -62,6 +67,15 @@ const ensureEmailDraft = () => {
 onMounted(() => {
   ensureEmailDraft()
 })
+
+watch(
+  () => automationActive.value,
+  (value) => {
+    if (!value) {
+      ensureEmailDraft()
+    }
+  }
+)
 
 const generateEmail = () => {
   ensureEmailDraft()
