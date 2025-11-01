@@ -7,6 +7,7 @@
         <input
           v-model="queryInput"
           :disabled="!automationEnabled && flowStore.resolving"
+          @keydown.enter.prevent="handleSubmit"
           type="text"
           placeholder="例如：环球贸易有限公司 或 https://www.example.com"
         />
@@ -67,7 +68,8 @@ onMounted(() => {
 
 const handleSubmit = async () => {
   const trimmed = (queryInput.value || '').trim()
-  if (!trimmed || flowStore.resolving) return
+  if (!trimmed) return
+  if (!automationEnabled.value && flowStore.resolving) return
 
   if (!settingsStore.loaded && !settingsStore.loading) {
     await settingsStore.fetchSettings()
