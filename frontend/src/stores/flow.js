@@ -59,6 +59,8 @@ export const useFlowStore = defineStore('flow', {
     step: 1,
     query: '',
     resolving: false,
+    automationQueueing: false,
+    automationBacklog: [],
     resolveResult: null,
     contacts: [],
     summary: '',
@@ -87,6 +89,8 @@ export const useFlowStore = defineStore('flow', {
       this.step = 1
       this.query = ''
       this.resolving = false
+      this.automationQueueing = false
+      this.automationBacklog = []
       this.resolveResult = null
       this.contacts = []
       this.summary = ''
@@ -331,13 +335,37 @@ export const useFlowStore = defineStore('flow', {
       const ui = useUiStore()
       const trimmed = (query || '').trim()
       if (!trimmed) {
-        return null
-      }
-      if (this.resolving) {
-        return null
+        return Promise.resolve(null)
       }
       ui.pushToast('提交成功，后台自动分析已排队', 'success')
-      this.resolving = true
+      return new Promise((resolve, reject) => {
+        this.automationBacklog.push({ query: trimmed, resolve, reject })
+        this.processAutomationQueue()
+      })
+    },
+    async processAutomationQueue() {
+      if (this.automationQueueing) {
+        return
+      }
+      const next = this.automationBacklog.shift()
+      if (!next) {
+        return
+      }
+      this.automationQueueing = true
+      try {
+        const job = await this.executeAutomationForQuery(next.query)
+        next.resolve(job)
+      } catch (error) {
+        next.reject(error)
+      } finally {
+        this.automationQueueing = false
+        if (this.automationBacklog.length) {
+          this.processAutomationQueue()
+        }
+      }
+    },
+    async executeAutomationForQuery(trimmed) {
+      const ui = useUiStore()
       try {
         const payload = await resolveCompany(trimmed)
         const data = payload?.data || {}
@@ -345,20 +373,31 @@ export const useFlowStore = defineStore('flow', {
           data.name = trimmed
         }
         this.applyResolvedData(data)
-        this.query = trimmed
-        if (!Array.isArray(this.contacts) || !this.contacts.length) {
-          const contacts = Array.isArray(data.contacts)
-            ? data.contacts.map((contact, index) => ({
-                name: contact.name?.trim() || '',
-                title: contact.title?.trim() || '',
-                email: contact.email?.trim() || '',
-                phone: contact.phone?.trim() || '',
-                source: contact.source?.trim() || '',
-                is_key: index === 0 || Boolean(contact.is_key),
-              }))
-            : []
-          this.contacts = contacts
+        this.query = ''
+        const existingId = Number(data.customer_id || data.id || 0)
+        if (existingId > 0) {
+          this.customerId = existingId
+        } else {
+          this.customerId = null
+          this.gradeFinal = null
+          this.analysis = null
+          this.emailDraft = null
+          this.followupId = null
+          this.scheduledTask = null
+          this.setAutomationJob(null)
+          this.step = 1
         }
+        const contacts = Array.isArray(data.contacts)
+          ? data.contacts.map((contact, index) => ({
+              name: contact.name?.trim() || '',
+              title: contact.title?.trim() || '',
+              email: contact.email?.trim() || '',
+              phone: contact.phone?.trim() || '',
+              source: contact.source?.trim() || '',
+              is_key: index === 0 || Boolean(contact.is_key),
+            }))
+          : []
+        this.contacts = contacts
         const responseData = await this.saveCompany(
           {
             name: (data.name || trimmed).trim() || trimmed,
@@ -376,12 +415,11 @@ export const useFlowStore = defineStore('flow', {
             this.setAutomationJob(job)
           }
         }
+        this.query = ''
         return job
       } catch (error) {
         ui.pushToast(error.message, 'error')
         throw error
-      } finally {
-        this.resolving = false
       }
     },
     async updateContacts(contacts) {

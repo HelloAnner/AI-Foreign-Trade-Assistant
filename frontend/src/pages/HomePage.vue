@@ -6,11 +6,11 @@
       <form class="home__form" @submit.prevent="handleSubmit">
         <input
           v-model="queryInput"
-          :disabled="flowStore.resolving"
+          :disabled="!automationEnabled && flowStore.resolving"
           type="text"
           placeholder="例如：环球贸易有限公司 或 https://www.example.com"
         />
-        <button type="submit" :disabled="!queryInput || flowStore.resolving">
+        <button type="submit" :disabled="!queryInput || (!automationEnabled && flowStore.resolving)">
           {{ submitLabel }}
         </button>
       </form>
@@ -34,17 +34,29 @@ const queryInput = ref(flowStore.query)
 const automationEnabled = computed(() => Boolean(settingsStore.data.automation_enabled))
 
 const submitLabel = computed(() => {
-  if (flowStore.resolving && !automationEnabled.value) {
-    return '分析中…'
+  if (automationEnabled.value) {
+    return '开始后台自动分析'
   }
-  return automationEnabled.value ? '开始后台自动分析' : flowStore.resolving ? '分析中…' : '开始分析'
+  return flowStore.resolving ? '分析中…' : '开始分析'
 })
 
 watch(
   () => flowStore.query,
   (value) => {
+    if (automationEnabled.value) {
+      return
+    }
     if (value !== queryInput.value) {
       queryInput.value = value
+    }
+  }
+)
+
+watch(
+  () => automationEnabled.value,
+  (enabled) => {
+    if (!enabled) {
+      queryInput.value = flowStore.query
     }
   }
 )
@@ -62,11 +74,10 @@ const handleSubmit = async () => {
   }
 
   if (automationEnabled.value) {
-    try {
-      await flowStore.queueAutomation(trimmed)
-    } catch (error) {
-      // errors are surfaced via toast in the store
-    }
+    flowStore.queueAutomation(trimmed).catch(() => {
+      /* 错误已在 store 中提示 */
+    })
+    queryInput.value = ''
     return
   }
 
