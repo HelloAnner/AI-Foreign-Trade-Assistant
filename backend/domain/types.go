@@ -46,22 +46,22 @@ type ResolveCompanyRequest struct {
 
 // ResolveCompanyResponse holds aggregated company data suggested by AI.
 type ResolveCompanyResponse struct {
-	CustomerID    int64               `json:"customer_id,omitempty"`
-	Name          string              `json:"name,omitempty"`
-	Website       string              `json:"website"`
-	WebsiteConfidence float64         `json:"website_confidence,omitempty"`
-	Country       string              `json:"country"`
-	Contacts      []Contact           `json:"contacts"`
-	Candidates    []CandidateWebsite  `json:"candidates"`
-	Summary       string              `json:"summary"`
-	Grade         string              `json:"grade,omitempty"`
-	GradeReason   string              `json:"grade_reason,omitempty"`
-	LastStep      int                 `json:"last_step,omitempty"`
-	Analysis      *AnalysisResponse   `json:"analysis,omitempty"`
-	EmailDraft    *EmailDraftResponse `json:"email_draft,omitempty"`
-	FollowupID    int64               `json:"followup_id,omitempty"`
-	ScheduledTask *ScheduledTask      `json:"scheduled_task,omitempty"`
-	AutomationJob *AutomationJob      `json:"automation_job,omitempty"`
+	CustomerID        int64               `json:"customer_id,omitempty"`
+	Name              string              `json:"name,omitempty"`
+	Website           string              `json:"website"`
+	WebsiteConfidence float64             `json:"website_confidence,omitempty"`
+	Country           string              `json:"country"`
+	Contacts          []Contact           `json:"contacts"`
+	Candidates        []CandidateWebsite  `json:"candidates"`
+	Summary           string              `json:"summary"`
+	Grade             string              `json:"grade,omitempty"`
+	GradeReason       string              `json:"grade_reason,omitempty"`
+	LastStep          int                 `json:"last_step,omitempty"`
+	Analysis          *AnalysisResponse   `json:"analysis,omitempty"`
+	EmailDraft        *EmailDraftResponse `json:"email_draft,omitempty"`
+	FollowupID        int64               `json:"followup_id,omitempty"`
+	ScheduledTask     *ScheduledTask      `json:"scheduled_task,omitempty"`
+	AutomationJob     *AutomationJob      `json:"automation_job,omitempty"`
 }
 
 // CreateCompanyRequest persists the curated Step 1 output.
@@ -103,8 +103,11 @@ type EmailRecord struct {
 
 // GradeSuggestionResponse holds AI grade recommendation.
 type GradeSuggestionResponse struct {
-	SuggestedGrade string `json:"suggested_grade"`
-	Reason         string `json:"reason"`
+	SuggestedGrade  string   `json:"suggested_grade"`
+	Reason          string   `json:"reason"`
+	Confidence      float64  `json:"confidence_score,omitempty"`
+	PositiveSignals []string `json:"positive_signals,omitempty"`
+	NegativeSignals []string `json:"negative_signals,omitempty"`
 }
 
 // GradeConfirmRequest confirms the final grade decided by the user.

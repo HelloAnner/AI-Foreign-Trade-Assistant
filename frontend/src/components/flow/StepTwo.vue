@@ -22,6 +22,19 @@
             {{ flowStore.gradeSuggestion.suggested_grade }}级
           </div>
           <p class="reason">理由：{{ flowStore.gradeSuggestion.reason }}</p>
+          <p v-if="confidenceText" class="confidence">置信度：{{ confidenceText }}</p>
+          <div v-if="positiveSignals.length" class="signals">
+            <h4>正向信号</h4>
+            <ul>
+              <li v-for="(item, index) in positiveSignals" :key="`pos-${index}`">{{ item }}</li>
+            </ul>
+          </div>
+          <div v-if="negativeSignals.length" class="signals">
+            <h4>负向信号</h4>
+            <ul>
+              <li v-for="(item, index) in negativeSignals" :key="`neg-${index}`">{{ item }}</li>
+            </ul>
+          </div>
           <div class="actions">
             <button type="button" class="solid" :disabled="automationActive" @click="handleConfirm('A')">
               确认 A级（继续分析）
@@ -61,6 +74,15 @@ const nav = inject('flowNav', {})
 const automationActive = computed(() => {
   const status = String(flowStore.automationJob?.status || '').toLowerCase()
   return status === 'queued' || status === 'running'
+})
+
+const positiveSignals = computed(() => flowStore.gradeSuggestion?.positive_signals || [])
+const negativeSignals = computed(() => flowStore.gradeSuggestion?.negative_signals || [])
+const confidenceText = computed(() => {
+  const value = flowStore.gradeSuggestion?.confidence_score
+  if (typeof value !== 'number' || Number.isNaN(value)) return ''
+  const percent = Math.round(Math.max(0, Math.min(1, value)) * 100)
+  return `${percent}%`
 })
 
 const ensureGrade = () => {
@@ -194,6 +216,38 @@ const handleConfirm = async (grade) => {
   max-width: 420px;
   color: var(--text-secondary);
   line-height: 1.6;
+}
+
+.confidence {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.signals {
+  width: 100%;
+  max-width: 480px;
+  text-align: left;
+  background: var(--surface-subtle);
+  border-radius: 12px;
+  padding: 16px 20px;
+  border: 1px solid var(--border-default);
+}
+
+.signals h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.signals ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .actions {
