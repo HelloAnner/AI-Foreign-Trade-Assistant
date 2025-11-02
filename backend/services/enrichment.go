@@ -71,6 +71,7 @@ func (s *EnrichmentServiceImpl) ResolveCompany(ctx context.Context, req *domain.
 	}
 
 	var (
+		searchPlan  *SearchPlanResult
 		searchItems []SearchItem
 		primaryURL  string
 		pageSummary *WebPageSummary
@@ -84,7 +85,7 @@ func (s *EnrichmentServiceImpl) ResolveCompany(ctx context.Context, req *domain.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		searchItems, primaryURL, pageSummary, searchErr = s.collectSearchArtifacts(ctx, query, looksURL)
+		searchPlan, searchItems, primaryURL, pageSummary, searchErr = s.collectSearchArtifacts(ctx, query, looksURL)
 	}()
 
 	if llmReady {
@@ -127,7 +128,7 @@ func (s *EnrichmentServiceImpl) ResolveCompany(ctx context.Context, req *domain.
 	websiteCandidate := ""
 
 	if llmReady {
-		prompt := buildEnrichmentPrompt(query, searchItems, pageSummary, knowledge)
+		prompt := buildEnrichmentPrompt(query, searchPlan, searchItems, pageSummary, knowledge)
 		content, _, err := s.llm.Chat(ctx, []ChatMessage{
 			{Role: "system", Content: enrichmentSystemPrompt},
 			{Role: "user", Content: prompt},
@@ -215,7 +216,7 @@ func (s *EnrichmentServiceImpl) ResolveCompany(ctx context.Context, req *domain.
 	}, nil
 }
 
-func (s *EnrichmentServiceImpl) collectSearchArtifacts(ctx context.Context, query string, looksURL bool) ([]SearchItem, string, *WebPageSummary, error) {
+func (s *EnrichmentServiceImpl) collectSearchArtifacts(ctx context.Context, query string, looksURL bool) (*SearchPlanResult, []SearchItem, string, *WebPageSummary, error) {
 	if looksURL {
 		normalized := normalizeMaybe(query)
 		items := []SearchItem{{
@@ -228,21 +229,22 @@ func (s *EnrichmentServiceImpl) collectSearchArtifacts(ctx context.Context, quer
 			primary = normalized
 		}
 		summary := s.fetchWebSummary(ctx, primary)
-		log.Printf("[enrichment] query=%s results=%d", query, len(items))
-		return items, primary, summary, nil
+		log.Printf("[enrichment] query=%s results=%d (direct URL)", query, len(items))
+		return nil, items, primary, summary, nil
 	}
 
-	items, err := s.search.Search(ctx, query, 5)
+	plan, err := s.search.ExecutePlan(ctx, query)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("搜索失败: %w", err)
+		return nil, nil, "", nil, fmt.Errorf("搜索失败: %w", err)
 	}
+	items := plan.Combined()
 	if len(items) == 0 {
-		return nil, "", nil, fmt.Errorf("未从搜索中获取有效结果，请尝试手动输入官网")
+		return plan, nil, "", nil, fmt.Errorf("未从搜索中获取有效结果，请尝试手动输入官网")
 	}
 	primary := choosePrimaryWebsite(items, query)
 	summary := s.fetchWebSummary(ctx, primary)
-	log.Printf("[enrichment] query=%s results=%d", query, len(items))
-	return items, primary, summary, nil
+	log.Printf("[enrichment] query=%s aggregated_results=%d", query, len(items))
+	return plan, items, primary, summary, nil
 }
 
 func (s *EnrichmentServiceImpl) fetchWebSummary(ctx context.Context, url string) *WebPageSummary {
@@ -273,30 +275,20 @@ func (s *EnrichmentServiceImpl) gatherLLMContext(ctx context.Context, query stri
 	return strings.TrimSpace(content), nil
 }
 
-func buildEnrichmentPrompt(query string, items []SearchItem, page *WebPageSummary, knowledge string) string {
+func buildEnrichmentPrompt(query string, plan *SearchPlanResult, fallbackItems []SearchItem, page *WebPageSummary, knowledge string) string {
 	var b strings.Builder
 	b.WriteString("My Goal: To build a profile for a potential B2B customer.\n")
 	b.WriteString("Initial Query: ")
 	b.WriteString(strings.TrimSpace(query))
-	b.WriteString("\n\n### Search Engine Results:\n")
-	if len(items) == 0 {
-		b.WriteString("- 无可用搜索结果\n")
-	} else {
-		for _, item := range items {
-			title := strings.TrimSpace(item.Title)
-			if title == "" {
-				title = "(无标题)"
-			}
-			url := strings.TrimSpace(item.URL)
-			if url == "" {
-				url = "(无 URL)"
-			}
-			snippet := strings.TrimSpace(stripSearchTag(item.Snippet))
-			if snippet == "" {
-				snippet = "(无摘要)"
-			}
-			b.WriteString(fmt.Sprintf("- **%s**\n  URL: %s\n  Snippet: %s\n", title, url, snippet))
+
+	b.WriteString("\n\n### Search Engine Results by Task:\n")
+	if plan != nil {
+		for _, stage := range plan.Order {
+			section := formatSearchSection(stage, plan.Result(stage))
+			b.WriteString(section)
 		}
+	} else {
+		b.WriteString(formatFallbackSearchSection(fallbackItems))
 	}
 
 	b.WriteString("\n### Official Website Content Analysis:\n")
@@ -364,6 +356,52 @@ Based on all the material provided, please perform the following steps:
 	return b.String()
 }
 
+func formatSearchSection(stage SearchStage, result *SearchTaskResult) string {
+	var b strings.Builder
+	label := stageLabel(stage)
+	if result == nil || len(result.Items) == 0 {
+		b.WriteString(fmt.Sprintf("- %s：无结果 (query: %s)\n", label, strings.TrimSpace(resultQuery(result))))
+		return b.String()
+	}
+	b.WriteString(fmt.Sprintf("- %s (query: %s)\n", label, strings.TrimSpace(result.Query)))
+	for idx, item := range result.Items {
+		title := firstNonEmpty(item.Title, "(无标题)")
+		url := firstNonEmpty(item.URL, "(无 URL)")
+		snippet := strings.TrimSpace(stripSearchTag(item.Snippet))
+		if snippet == "" {
+			snippet = "(无摘要)"
+		}
+		b.WriteString(fmt.Sprintf("  %d. %s\n     URL: %s\n     Snippet: %s\n", idx+1, title, url, snippet))
+	}
+	return b.String()
+}
+
+func formatFallbackSearchSection(items []SearchItem) string {
+	var b strings.Builder
+	if len(items) == 0 {
+		b.WriteString("- 无可用搜索结果\n")
+		return b.String()
+	}
+	b.WriteString("- 汇总结果 (无计划上下文)\n")
+	for idx, item := range items {
+		title := firstNonEmpty(item.Title, "(无标题)")
+		url := firstNonEmpty(item.URL, "(无 URL)")
+		snippet := strings.TrimSpace(stripSearchTag(item.Snippet))
+		if snippet == "" {
+			snippet = "(无摘要)"
+		}
+		b.WriteString(fmt.Sprintf("  %d. %s\n     URL: %s\n     Snippet: %s\n", idx+1, title, url, snippet))
+	}
+	return b.String()
+}
+
+func resultQuery(res *SearchTaskResult) string {
+	if res == nil {
+		return ""
+	}
+	return res.Query
+}
+
 func buildFallbackSummary(page *WebPageSummary, knowledge string) string {
 	if strings.TrimSpace(knowledge) != "" {
 		return truncateRunes(strings.TrimSpace(knowledge), 500)
@@ -407,15 +445,6 @@ func isPlausibleWebsite(raw string) bool {
 		return false
 	}
 	return true
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func sanitizeContacts(in []domain.Contact) []domain.Contact {

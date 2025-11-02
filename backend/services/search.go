@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +16,79 @@ import (
 
 const defaultSearchTimeout = 25 * time.Second
 
+// SearchStage enumerates the predefined concurrent search tracks.
+type SearchStage string
+
+const (
+	SearchStageBroad    SearchStage = "broad_discovery" // 任务A
+	SearchStageWebsite  SearchStage = "website_focus"   // 任务B
+	SearchStageContacts SearchStage = "decision_makers" // 任务C
+	SearchStageLinkedIn SearchStage = "linkedin_audit"  // 任务D
+)
+
+type searchTaskSpec struct {
+	Stage        SearchStage
+	Label        string
+	QueryBuilder func(string) string
+	Limit        int
+}
+
+var defaultSearchPlan = []searchTaskSpec{
+	{
+		Stage: SearchStageBroad,
+		Label: "任务A：基础信息搜索",
+		Limit: 6,
+		QueryBuilder: func(name string) string {
+			return strings.TrimSpace(name)
+		},
+	},
+	{
+		Stage: SearchStageWebsite,
+		Label: "任务B：官网及业务搜索",
+		Limit: 6,
+		QueryBuilder: func(name string) string {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				return ""
+			}
+			return fmt.Sprintf(`%s official website OR about us OR products`, name)
+		},
+	},
+	{
+		Stage: SearchStageContacts,
+		Label: "任务C：关键联系人搜索",
+		Limit: 6,
+		QueryBuilder: func(name string) string {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				return ""
+			}
+			return fmt.Sprintf(`("owner" OR "founder" OR "CEO" OR "purchasing manager" OR "sourcing director") AND "%s"`, name)
+		},
+	},
+	{
+		Stage: SearchStageLinkedIn,
+		Label: "任务D：社交与职业背景搜索",
+		Limit: 6,
+		QueryBuilder: func(name string) string {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				return ""
+			}
+			return fmt.Sprintf(`site:linkedin.com "%s"`, name)
+		},
+	},
+}
+
+func stageLabel(stage SearchStage) string {
+	for _, spec := range defaultSearchPlan {
+		if spec.Stage == stage {
+			return spec.Label
+		}
+	}
+	return strings.ToUpper(string(stage))
+}
+
 // SearchItem represents a single search result snippet.
 type SearchItem struct {
 	Title   string `json:"title"`
@@ -24,11 +96,56 @@ type SearchItem struct {
 	Snippet string `json:"snippet"`
 }
 
+// SearchTaskResult captures the outcome of an individual search task.
+type SearchTaskResult struct {
+	Stage    SearchStage
+	Label    string
+	Query    string
+	Items    []SearchItem
+	Error    error
+	Duration time.Duration
+}
+
+// SearchPlanResult contains the aggregated output of all predefined tasks.
+type SearchPlanResult struct {
+	Customer     string
+	Provider     string
+	StageResults map[SearchStage]*SearchTaskResult
+	Order        []SearchStage
+	combined     []SearchItem
+}
+
+// Combined returns the deduplicated aggregate search results in plan order.
+func (r *SearchPlanResult) Combined() []SearchItem {
+	if r == nil {
+		return nil
+	}
+	cp := make([]SearchItem, len(r.combined))
+	copy(cp, r.combined)
+	return cp
+}
+
+// Result returns the task result for the provided stage.
+func (r *SearchPlanResult) Result(stage SearchStage) *SearchTaskResult {
+	if r == nil {
+		return nil
+	}
+	return r.StageResults[stage]
+}
+
+// Items returns the search items for the provided stage.
+func (r *SearchPlanResult) Items(stage SearchStage) []SearchItem {
+	res := r.Result(stage)
+	if res == nil {
+		return nil
+	}
+	return res.Items
+}
+
 // SearchClient invokes third-party search engines.
 type SearchClient struct {
 	store      *store.Store
 	httpClient *http.Client
-	fetcher    *WebFetcher
 }
 
 // NewSearchClient constructs a search client.
@@ -39,17 +156,17 @@ func NewSearchClient(st *store.Store, client *http.Client) *SearchClient {
 	return &SearchClient{
 		store:      st,
 		httpClient: client,
-		fetcher:    NewWebFetcher(client),
 	}
 }
 
-// Search executes a query using the configured provider.
-func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]SearchItem, error) {
+// ExecutePlan runs the predefined parallel search plan.
+func (c *SearchClient) ExecutePlan(ctx context.Context, customerName string) (*SearchPlanResult, error) {
 	if c == nil || c.store == nil {
 		return nil, fmt.Errorf("search client not initialized")
 	}
-	if limit <= 0 {
-		limit = 5
+	customerName = strings.TrimSpace(customerName)
+	if customerName == "" {
+		return nil, fmt.Errorf("搜索关键词不能为空")
 	}
 
 	settings, err := c.store.GetSettings(ctx)
@@ -57,186 +174,80 @@ func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]S
 		return nil, fmt.Errorf("load settings: %w", err)
 	}
 
-	provider := strings.ToLower(strings.TrimSpace(settings.SearchProvider))
+	provider, providerLabel := normalizeProvider(settings.SearchProvider)
 	apiKey := strings.TrimSpace(settings.SearchAPIKey)
 
-	variants := buildSearchVariants(query)
-	if len(variants) == 0 {
-		return nil, fmt.Errorf("搜索关键词不能为空")
-	}
-	if provider == "" && len(variants) > 1 {
-		// 在无搜索提供商的降级模式下仅使用原始查询，防止将扩展查询误判为 URL。
-		variants = variants[:1]
+	result := &SearchPlanResult{
+		Customer:     customerName,
+		Provider:     providerLabel,
+		StageResults: make(map[SearchStage]*SearchTaskResult),
 	}
 
-	type result struct {
-		idx   int
-		items []SearchItem
-		err   error
-	}
-
-	maxItems := limit * (len(variants) + 2)
-	if maxItems == 0 {
-		maxItems = limit * 3
-	}
-
-	resultsChan := make(chan result, len(variants))
 	var wg sync.WaitGroup
-	for idx, variant := range variants {
+	var mu sync.Mutex
+
+	for _, spec := range defaultSearchPlan {
+		query := spec.QueryBuilder(customerName)
+		if strings.TrimSpace(query) == "" {
+			continue
+		}
 		wg.Add(1)
-		go func(i int, q string) {
+		go func(spec searchTaskSpec, query string) {
 			defer wg.Done()
-			items, err := c.searchSingle(ctx, provider, apiKey, q, limit)
-			resultsChan <- result{idx: i, items: items, err: err}
-		}(idx, variant)
+			start := time.Now()
+			items, err := c.searchSingle(ctx, provider, apiKey, query, spec.Limit)
+			if err != nil {
+				log.Printf("[search] stage=%s query=\"%s\" error=%v", spec.Stage, truncateForLog(query, 80), err)
+			} else {
+				log.Printf("[search] stage=%s query=\"%s\" provider=%s results=%d", spec.Stage, truncateForLog(query, 80), providerLabel, len(items))
+			}
+			mu.Lock()
+			result.StageResults[spec.Stage] = &SearchTaskResult{
+				Stage:    spec.Stage,
+				Label:    spec.Label,
+				Query:    query,
+				Items:    items,
+				Error:    err,
+				Duration: time.Since(start),
+			}
+			mu.Unlock()
+		}(spec, query)
 	}
 
 	wg.Wait()
-	close(resultsChan)
-
-	ordered := make([][]SearchItem, len(variants))
-	var firstErr error
-	for res := range resultsChan {
-		if res.err != nil {
-			if firstErr == nil {
-				firstErr = res.err
-			}
-			log.Printf("[search] variant=%d query=\"%s\" error=%v", res.idx, truncateForLog(variants[res.idx], 60), res.err)
-			continue
-		}
-		ordered[res.idx] = res.items
-	}
-
-	combined := make([]SearchItem, 0, maxItems)
-	seen := map[string]struct{}{}
-	for idx, items := range ordered {
-		if len(items) == 0 {
-			continue
-		}
-		log.Printf("[search] variant=%d query=\"%s\" results=%d", idx, truncateForLog(variants[idx], 60), len(items))
-		combined = appendUniqueItems(combined, items, seen, maxItems)
-		if maxItems > 0 && len(combined) >= maxItems {
-			break
-		}
-	}
-
-	primaryDomain := extractPrimaryDomain(combined, query)
-	if provider != "" && primaryDomain != "" && (maxItems == 0 || len(combined) < maxItems) {
-		siteQuery := buildSiteSearchQuery(primaryDomain)
-		if siteQuery != "" {
-			siteItems, err := c.searchSingle(ctx, provider, apiKey, siteQuery, limit)
-			if err != nil {
-				log.Printf("[search] provider=%s site_query error=%v", providerLabel(provider), err)
-			} else {
-				log.Printf("[search] site_query domain=%s results=%d", primaryDomain, len(siteItems))
-				combined = appendUniqueItems(combined, annotateSearchItems(siteItems, "站内"), seen, maxItems)
-			}
-		}
-
-		if len(combined) < maxItems {
-			linkedinQuery := buildLinkedInQuery(strings.TrimSpace(query), primaryDomain)
-			if linkedinQuery != "" {
-				linkedItems, err := c.searchSingle(ctx, provider, apiKey, linkedinQuery, min(limit, 4))
-				if err != nil {
-					log.Printf("[search] provider=%s linkedin_query error=%v", providerLabel(provider), err)
-				} else {
-					log.Printf("[search] linkedin_query results=%d", len(linkedItems))
-					combined = appendUniqueItems(combined, annotateSearchItems(linkedItems, "LinkedIn"), seen, maxItems)
-				}
-			}
-		}
-	}
-
-	if len(combined) == 0 && firstErr != nil {
-		return nil, firstErr
-	}
-
-	return combined, nil
-}
-
-func (c *SearchClient) searchSingle(ctx context.Context, provider, apiKey, query string, limit int) ([]SearchItem, error) {
-	providerLabel := provider
-	if providerLabel == "" {
-		providerLabel = "direct"
-	}
-	log.Printf("[search] provider=%s query=\"%s\" limit=%d status=started", providerLabel, truncateForLog(query, 60), limit)
-
-	switch provider {
-	case "bing":
-		results, err := c.searchBing(ctx, query, limit, apiKey)
-		log.Printf("[search] provider=bing results=%d error=%v", len(results), err)
-		return results, err
-	case "serpapi":
-		results, err := c.searchSerpAPI(ctx, query, limit, apiKey)
-		log.Printf("[search] provider=serpapi results=%d error=%v", len(results), err)
-		return results, err
-	case "ddg", "duckduckgo":
-		results, err := c.searchDuckDuckGo(ctx, query, limit)
-		log.Printf("[search] provider=duckduckgo results=%d error=%v", len(results), err)
-		return results, err
-	case "":
-		results := directMode(query)
-		log.Printf("[search] provider=direct results=%d", len(results))
-		return results, nil
-	default:
-		log.Printf("[search] provider=%s status=unsupported", provider)
-		return nil, fmt.Errorf("暂不支持的搜索提供商: %s", provider)
-	}
-}
-
-func buildSearchVariants(query string) []string {
-	trimmed := strings.TrimSpace(query)
-	if trimmed == "" {
-		return nil
-	}
 
 	seen := map[string]struct{}{}
-	var variants []string
-
-	appendVariant := func(candidate string) {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
-			return
+	for _, spec := range defaultSearchPlan {
+		res, ok := result.StageResults[spec.Stage]
+		if !ok || len(res.Items) == 0 {
+			continue
 		}
-		lower := strings.ToLower(candidate)
-		if _, ok := seen[lower]; ok {
-			return
-		}
-		seen[lower] = struct{}{}
-		variants = append(variants, candidate)
+		result.Order = append(result.Order, spec.Stage)
+		result.combined = appendDedup(result.combined, res.Items, seen, 0)
 	}
 
-	appendVariant(trimmed)
-
-	if !strings.Contains(trimmed, "官网") {
-		appendVariant(trimmed + " 官网")
-	}
-	if !strings.Contains(trimmed, "联系人") {
-		appendVariant(trimmed + " 联系人")
+	if len(result.combined) == 0 {
+		return nil, fmt.Errorf("所有搜索任务均未返回有效结果")
 	}
 
-	roleFocused := fmt.Sprintf(`%s (owner OR founder OR CEO OR "purchasing manager" OR "sourcing director")`, trimmed)
-	appendVariant(roleFocused)
-
-	return variants
+	return result, nil
 }
 
-func searchItemKey(item SearchItem) string {
-	if normalized := strings.TrimSpace(strings.ToLower(normalizeMaybe(item.URL))); normalized != "" {
-		return normalized
+// Search executes a single ad-hoc query using the configured provider.
+func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]SearchItem, error) {
+	if c == nil || c.store == nil {
+		return nil, fmt.Errorf("search client not initialized")
 	}
-
-	snippetKey := normalizeSnippet(item.Snippet)
-	if snippetKey != "" {
-		return snippetKey
+	if limit <= 0 {
+		limit = 5
 	}
-
-	titleKey := strings.TrimSpace(strings.ToLower(item.Title))
-	if titleKey != "" {
-		return titleKey
+	settings, err := c.store.GetSettings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load settings: %w", err)
 	}
-
-	return ""
+	provider, _ := normalizeProvider(settings.SearchProvider)
+	apiKey := strings.TrimSpace(settings.SearchAPIKey)
+	return c.searchSingle(ctx, provider, apiKey, query, limit)
 }
 
 // TestSearch validates that the configured provider can return at least one result.
@@ -249,43 +260,229 @@ func (c *SearchClient) TestSearch(ctx context.Context) error {
 		return fmt.Errorf("读取配置失败: %w", err)
 	}
 
-	provider := strings.ToLower(strings.TrimSpace(settings.SearchProvider))
+	provider := strings.TrimSpace(settings.SearchProvider)
 	if provider == "" {
 		return fmt.Errorf("请先在设置中配置搜索提供商")
 	}
 
-	results, err := c.Search(ctx, "Apple Inc. 官网", 5)
+	plan, err := c.ExecutePlan(ctx, "Apple Inc.")
 	if err != nil {
 		return err
 	}
-	if len(results) < 3 {
+	if len(plan.combined) < 3 {
 		return fmt.Errorf("搜索结果不足 3 条，请检查搜索提供商或关键词")
 	}
-
-	if c.fetcher == nil {
-		c.fetcher = NewWebFetcher(nil)
-	}
-
-	for i := 0; i < 3; i++ {
-		item := results[i]
-		if strings.TrimSpace(item.URL) == "" {
-			return fmt.Errorf("第 %d 个搜索结果缺少有效链接", i+1)
-		}
-		ctxFetch, cancel := context.WithTimeout(ctx, 20*time.Second)
-		summary, fetchErr := c.fetcher.Fetch(ctxFetch, item.URL)
-		cancel()
-		if fetchErr != nil {
-			return fmt.Errorf("抓取第 %d 个搜索结果失败: %w", i+1, fetchErr)
-		}
-		if summary == nil || strings.TrimSpace(summary.Text) == "" {
-			return fmt.Errorf("第 %d 个搜索结果未解析到网页正文内容", i+1)
-		}
-	}
-
 	return nil
 }
 
-func appendUniqueItems(dest []SearchItem, items []SearchItem, seen map[string]struct{}, max int) []SearchItem {
+// ------------------------------------------------------------------------
+// Provider adapters and helpers
+// ------------------------------------------------------------------------
+
+func (c *SearchClient) searchSingle(ctx context.Context, provider, apiKey, query string, limit int) ([]SearchItem, error) {
+	providerLabel := provider
+	if providerLabel == "" {
+		providerLabel = "direct"
+	}
+	log.Printf("[search] provider=%s query=\"%s\" limit=%d status=started", providerLabel, truncateForLog(query, 80), limit)
+
+	switch provider {
+	case "serpapi":
+		return c.searchSerpAPI(ctx, query, limit, apiKey)
+	case "bing":
+		return c.searchBing(ctx, query, limit, apiKey)
+	case "ddg":
+		return c.searchDuckDuckGo(ctx, query, limit)
+	case "":
+		return directMode(query), nil
+	default:
+		log.Printf("[search] provider=%s status=unsupported, fallback=direct", provider)
+		return directMode(query), nil
+	}
+}
+
+func (c *SearchClient) searchBing(ctx context.Context, query string, limit int, apiKey string) ([]SearchItem, error) {
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, fmt.Errorf("Bing 搜索需要配置 API Key")
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	endpoint := "https://api.bing.microsoft.com/v7.0/search"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Set("q", query)
+	q.Set("count", strconv.Itoa(limit))
+	req.URL.RawQuery = q.Encode()
+	req.Header.Set("Ocp-Apim-Subscription-Key", apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("Bing 搜索失败: %s", resp.Status)
+	}
+
+	var payload struct {
+		WebPages struct {
+			Value []struct {
+				Name        string `json:"name"`
+				URL         string `json:"url"`
+				Snippet     string `json:"snippet"`
+				DisplayURL  string `json:"displayUrl"`
+				Description string `json:"description"`
+			} `json:"value"`
+		} `json:"webPages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	items := make([]SearchItem, 0, len(payload.WebPages.Value))
+	for _, value := range payload.WebPages.Value {
+		url := strings.TrimSpace(value.URL)
+		if url == "" {
+			url = strings.TrimSpace(value.DisplayURL)
+		}
+		items = append(items, SearchItem{
+			Title:   strings.TrimSpace(value.Name),
+			URL:     url,
+			Snippet: strings.TrimSpace(firstNonEmpty(value.Snippet, value.Description)),
+		})
+	}
+	return items, nil
+}
+
+func (c *SearchClient) searchSerpAPI(ctx context.Context, query string, limit int, apiKey string) ([]SearchItem, error) {
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, fmt.Errorf("SERP API 需要配置 API Key")
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+
+	endpoint := "https://serpapi.com/search.json"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	q := req.URL.Query()
+	q.Set("engine", "google")
+	q.Set("google_domain", "google.com")
+	q.Set("q", query)
+	q.Set("num", strconv.Itoa(limit))
+	q.Set("api_key", apiKey)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("SERP API 搜索失败: %s", resp.Status)
+	}
+
+	var payload struct {
+		OrganicResults []struct {
+			Title       string `json:"title"`
+			Link        string `json:"link"`
+			Snippet     string `json:"snippet"`
+			Description string `json:"description"`
+		} `json:"organic_results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	items := make([]SearchItem, 0, len(payload.OrganicResults))
+	for _, value := range payload.OrganicResults {
+		items = append(items, SearchItem{
+			Title:   strings.TrimSpace(value.Title),
+			URL:     strings.TrimSpace(value.Link),
+			Snippet: strings.TrimSpace(firstNonEmpty(value.Snippet, value.Description)),
+		})
+	}
+	return items, nil
+}
+
+func (c *SearchClient) searchDuckDuckGo(ctx context.Context, query string, limit int) ([]SearchItem, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	endpoint := "https://duckduckgo.com/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Set("q", query)
+	q.Set("format", "json")
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("DuckDuckGo 搜索失败: %s", resp.Status)
+	}
+
+	var payload struct {
+		RelatedTopics []struct {
+			Text     string `json:"Text"`
+			FirstURL string `json:"FirstURL"`
+		} `json:"RelatedTopics"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	items := make([]SearchItem, 0, len(payload.RelatedTopics))
+	for _, topic := range payload.RelatedTopics {
+		if strings.TrimSpace(topic.FirstURL) == "" {
+			continue
+		}
+		items = append(items, SearchItem{
+			Title:   strings.TrimSpace(topic.Text),
+			URL:     strings.TrimSpace(topic.FirstURL),
+			Snippet: strings.TrimSpace(topic.Text),
+		})
+		if len(items) >= limit {
+			break
+		}
+	}
+	return items, nil
+}
+
+// directMode is a minimal fallback used when no provider is configured.
+func directMode(query string) []SearchItem {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return nil
+	}
+	normalized, err := normalizeURL(trimmed)
+	if err != nil {
+		normalized = trimmed
+	}
+	return []SearchItem{{
+		Title:   trimmed,
+		URL:     normalized,
+		Snippet: "用户输入的原始关键词。未配置外部搜索服务，结果有限。",
+	}}
+}
+
+func appendDedup(dest []SearchItem, items []SearchItem, seen map[string]struct{}, max int) []SearchItem {
 	for _, item := range items {
 		key := searchItemKey(item)
 		if key == "" {
@@ -303,82 +500,17 @@ func appendUniqueItems(dest []SearchItem, items []SearchItem, seen map[string]st
 	return dest
 }
 
-func annotateSearchItems(items []SearchItem, tag string) []SearchItem {
-	if tag == "" {
-		return items
+func searchItemKey(item SearchItem) string {
+	if normalized := strings.TrimSpace(strings.ToLower(normalizeMaybe(item.URL))); normalized != "" {
+		return normalized
 	}
-	prefix := "[" + tag + "] "
-	for i := range items {
-		items[i].Snippet = prefix + strings.TrimSpace(items[i].Snippet)
+	if snippet := normalizeSnippet(item.Snippet); snippet != "" {
+		return snippet
 	}
-	return items
-}
-
-func providerLabel(provider string) string {
-	if provider == "" {
-		return "direct"
-	}
-	return provider
-}
-
-func extractPrimaryDomain(items []SearchItem, query string) string {
-	for _, item := range items {
-		if strings.TrimSpace(item.URL) == "" {
-			continue
-		}
-		if domain := rootDomain(item.URL); domain != "" {
-			return domain
-		}
-	}
-	if looksLikeURL(query) {
-		if domain := rootDomain(query); domain != "" {
-			return domain
-		}
+	if title := strings.TrimSpace(strings.ToLower(item.Title)); title != "" {
+		return title
 	}
 	return ""
-}
-
-func rootDomain(raw string) string {
-	normalized, err := normalizeURL(raw)
-	if err != nil {
-		normalized = raw
-	}
-	parsed, err := url.Parse(normalized)
-	if err != nil {
-		return ""
-	}
-	host := strings.ToLower(strings.TrimSpace(parsed.Host))
-	host = strings.TrimPrefix(host, "www.")
-	return host
-}
-
-func buildSiteSearchQuery(domain string) string {
-	if domain == "" {
-		return ""
-	}
-	keywords := []string{
-		"\"About\"",
-		"\"About Us\"",
-		"\"Team\"",
-		"\"Leadership\"",
-		"\"Contact\"",
-		"\"联系我们\"",
-		"\"关于我们\"",
-		"\"产品\"",
-		"\"服务\"",
-	}
-	return fmt.Sprintf("site:%s (%s)", domain, strings.Join(keywords, " OR "))
-}
-
-func buildLinkedInQuery(query, domain string) string {
-	base := strings.TrimSpace(query)
-	if base == "" && domain != "" {
-		base = domain
-	}
-	if base == "" {
-		return ""
-	}
-	return fmt.Sprintf(`site:linkedin.com (%s) (CEO OR Founder OR "Purchasing Manager" OR "Sourcing Director")`, base)
 }
 
 func normalizeSnippet(snippet string) string {
@@ -394,214 +526,36 @@ func normalizeSnippet(snippet string) string {
 	return strings.ToLower(clean)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+func normalizeProvider(raw string) (provider string, label string) {
+	base := strings.ToLower(strings.TrimSpace(raw))
+	switch base {
+	case "", "google":
+		return "serpapi", "google"
+	case "serpapi":
+		return "serpapi", "google"
+	case "bing":
+		return "bing", "bing"
+	case "duckduckgo", "ddg":
+		return "ddg", "duckduckgo"
+	default:
+		return base, base
 	}
-	return b
 }
 
-func truncateForLog(input string, limit int) string {
-	trimmed := strings.TrimSpace(input)
-	if len([]rune(trimmed)) <= limit {
-		return trimmed
+func truncateForLog(text string, max int) string {
+	text = strings.TrimSpace(text)
+	if max <= 0 || len([]rune(text)) <= max {
+		return text
 	}
-	runes := []rune(trimmed)
-	return string(runes[:limit]) + "..."
+	runes := []rune(text)
+	return string(runes[:max]) + "…"
 }
 
-func (c *SearchClient) searchBing(ctx context.Context, query string, limit int, apiKey string) ([]SearchItem, error) {
-	if apiKey == "" {
-		return nil, fmt.Errorf("Bing 搜索需要配置 API Key")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.bing.microsoft.com/v7.0/search", nil)
-	if err != nil {
-		return nil, err
-	}
-	params := req.URL.Query()
-	params.Set("q", query)
-	params.Set("count", strconv.Itoa(limit))
-	req.URL.RawQuery = params.Encode()
-	req.Header.Set("Ocp-Apim-Subscription-Key", apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("Bing API 返回状态码 %d", resp.StatusCode)
-	}
-
-	var parsed struct {
-		WebPages struct {
-			Value []struct {
-				Name        string `json:"name"`
-				URL         string `json:"url"`
-				Snippet     string `json:"snippet"`
-				Description string `json:"description"`
-			} `json:"value"`
-		} `json:"webPages"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, err
-	}
-
-	results := make([]SearchItem, 0, len(parsed.WebPages.Value))
-	for _, item := range parsed.WebPages.Value {
-		snippet := item.Snippet
-		if snippet == "" {
-			snippet = item.Description
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
 		}
-		results = append(results, SearchItem{
-			Title:   item.Name,
-			URL:     item.URL,
-			Snippet: snippet,
-		})
 	}
-	return results, nil
-}
-
-func (c *SearchClient) searchSerpAPI(ctx context.Context, query string, limit int, apiKey string) ([]SearchItem, error) {
-	if apiKey == "" {
-		return nil, fmt.Errorf("SerpAPI 搜索需要配置 API Key")
-	}
-
-	endpoint, _ := url.Parse("https://serpapi.com/search")
-	params := endpoint.Query()
-	params.Set("engine", "google")
-	params.Set("q", query)
-	params.Set("num", strconv.Itoa(limit))
-	params.Set("api_key", apiKey)
-	endpoint.RawQuery = params.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("SerpAPI 返回状态码 %d", resp.StatusCode)
-	}
-
-	var parsed struct {
-		OrganicResults []struct {
-			Title   string `json:"title"`
-			Link    string `json:"link"`
-			Snippet string `json:"snippet"`
-		} `json:"organic_results"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, err
-	}
-
-	results := make([]SearchItem, 0, len(parsed.OrganicResults))
-	for _, item := range parsed.OrganicResults {
-		results = append(results, SearchItem{
-			Title:   item.Title,
-			URL:     item.Link,
-			Snippet: item.Snippet,
-		})
-	}
-	return results, nil
-}
-
-func (c *SearchClient) searchDuckDuckGo(ctx context.Context, query string, limit int) ([]SearchItem, error) {
-	endpoint := "https://duckduckgo.com/?q=%s&format=json&no_html=1&no_redirect=1"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(endpoint, url.QueryEscape(query)), nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("DuckDuckGo 接口返回状态码 %d", resp.StatusCode)
-	}
-
-	var parsed struct {
-		RelatedTopics []struct {
-			FirstURL string `json:"FirstURL"`
-			Text     string `json:"Text"`
-		} `json:"RelatedTopics"`
-		AbstractURL  string `json:"AbstractURL"`
-		AbstractText string `json:"AbstractText"`
-		Redirect     string `json:"Redirect"`
-		Results      []struct {
-			FirstURL string `json:"FirstURL"`
-			Text     string `json:"Text"`
-		} `json:"Results"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, err
-	}
-
-	results := make([]SearchItem, 0, limit)
-	if parsed.AbstractURL != "" {
-		results = append(results, SearchItem{
-			Title:   parsed.AbstractText,
-			URL:     parsed.AbstractURL,
-			Snippet: parsed.AbstractText,
-		})
-	}
-
-	for _, item := range parsed.Results {
-		if len(results) >= limit {
-			break
-		}
-		results = append(results, SearchItem{
-			Title:   item.Text,
-			URL:     item.FirstURL,
-			Snippet: item.Text,
-		})
-	}
-
-	for _, item := range parsed.RelatedTopics {
-		if len(results) >= limit {
-			break
-		}
-		results = append(results, SearchItem{
-			Title:   item.Text,
-			URL:     item.FirstURL,
-			Snippet: item.Text,
-		})
-	}
-
-	if len(results) == 0 && parsed.Redirect != "" {
-		results = append(results, SearchItem{
-			Title:   "DuckDuckGo Redirect",
-			URL:     parsed.Redirect,
-			Snippet: "DuckDuckGo redirect result",
-		})
-	}
-
-	return results, nil
-}
-
-func directMode(input string) []SearchItem {
-	input = strings.TrimSpace(input)
-	if input == "" {
-		return nil
-	}
-	urlValue := input
-	if !strings.HasPrefix(urlValue, "http://") && !strings.HasPrefix(urlValue, "https://") {
-		urlValue = "https://" + urlValue
-	}
-	return []SearchItem{{
-		Title:   "Direct URL",
-		URL:     urlValue,
-		Snippet: "搜索未配置，已进入直连模式。",
-	}}
+	return ""
 }
