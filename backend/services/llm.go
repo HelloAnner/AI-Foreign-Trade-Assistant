@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	defaultLLMTimeout = 30 * time.Second
+	defaultLLMTimeout = 5 * time.Minute
 )
 
 // ChatMessage models a single message in a chat completion.
@@ -87,6 +87,9 @@ func stringifyError(payload map[string]any) string {
 func (c *LLMClient) ensureConfigured(ctx context.Context) (*store.Settings, error) {
 	if c == nil || c.store == nil {
 		return nil, fmt.Errorf("llm client not initialized")
+	}
+	if ctx == nil || ctx.Err() != nil {
+		ctx = context.Background()
 	}
 	settings, err := c.store.GetSettings(ctx)
 	if err != nil {
@@ -168,7 +171,10 @@ func (c *LLMClient) Chat(ctx context.Context, messages []ChatMessage, opts ChatO
 		return "", nil, fmt.Errorf("拼接 LLM 地址失败: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	execCtx, cancel := context.WithTimeout(context.Background(), defaultLLMTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(execCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return "", nil, fmt.Errorf("创建 LLM 请求失败: %w", err)
 	}

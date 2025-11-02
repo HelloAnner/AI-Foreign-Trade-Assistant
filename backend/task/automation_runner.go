@@ -64,6 +64,12 @@ func (r *AutomationRunner) drain(ctx context.Context) {
 		processed, err := r.automation.ProcessNext(ctx)
 		if err != nil {
 			log.Printf("[automation] 处理任务失败: %v", err)
+			if processed {
+				// 当前任务已经标记为失败，继续尝试后续排队任务。
+				continue
+			}
+			// Claim 阶段失败，退出本轮，等待下一次 poll 再重试。
+			break
 		}
 		if !processed {
 			break
