@@ -143,9 +143,11 @@ const hydrateFromStore = () => {
     email: contact.email || '',
     phone: contact.phone || '',
     source: contact.source || '',
+    is_key: contact.is_key ?? contact.is_key_decision_maker ?? false,
+    is_key_decision_maker: contact.is_key_decision_maker ?? contact.is_key ?? false,
   }))
   if (!contactsLocal.value.length) {
-    contactsLocal.value.push({ name: '', title: '', email: '', phone: '', source: '' })
+    contactsLocal.value.push({ name: '', title: '', email: '', phone: '', source: '', is_key: true, is_key_decision_maker: true })
   }
 }
 
@@ -177,7 +179,7 @@ watch(
 )
 
 const addContact = () => {
-  contactsLocal.value.push({ name: '', title: '', email: '', phone: '', source: '' })
+  contactsLocal.value.push({ name: '', title: '', email: '', phone: '', source: '', is_key: false, is_key_decision_maker: false })
 }
 
 const removeContact = (index) => {
@@ -186,14 +188,18 @@ const removeContact = (index) => {
 }
 
 const sanitizedContacts = computed(() =>
-  contactsLocal.value.map((contact, index) => ({
-    name: contact.name.trim(),
-    title: contact.title.trim(),
-    email: contact.email.trim(),
-    phone: contact.phone.trim(),
-    source: contact.source?.trim() || '',
-    is_key: index === 0,
-  }))
+  contactsLocal.value.map((contact, index) => {
+    const keyFlag = contact.is_key_decision_maker ?? contact.is_key ?? index === 0
+    return {
+      name: contact.name.trim(),
+      title: contact.title.trim(),
+      email: contact.email.trim(),
+      phone: contact.phone.trim(),
+      source: contact.source?.trim() || '',
+      is_key: keyFlag,
+      is_key_decision_maker: keyFlag,
+    }
+  })
 )
 
 const automationJob = computed(() => flowStore.automationJob)
@@ -245,12 +251,20 @@ const automationBannerClass = computed(() => {
   return 'automation-banner--info'
 })
 
+const effectiveName = computed(() => {
+  const name = companyForm.name?.trim()
+  if (name) return name
+  const query = (flowStore.query || '').trim()
+  if (query) return query
+  const website = companyForm.website?.trim()
+  if (website) return website
+  return ''
+})
+
 const nextDisabled = computed(() => {
   if (flowStore.resolving) return true
-  if (!companyForm.website.trim()) return true
-  if (!companyForm.country.trim()) return true
   if (automationActive.value) return true
-  return false
+  return !effectiveName.value
 })
 
 const companyOverview = computed(() => {
@@ -261,8 +275,8 @@ const companyOverview = computed(() => {
 
 const handleNext = async () => {
   if (nextDisabled.value) return
-  if (!companyForm.name) {
-    companyForm.name = flowStore.query || companyForm.website
+  if (!companyForm.name?.trim()) {
+    companyForm.name = effectiveName.value
   }
   flowStore.contacts = sanitizedContacts.value
   try {

@@ -64,6 +64,10 @@ func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]S
 	if len(variants) == 0 {
 		return nil, fmt.Errorf("搜索关键词不能为空")
 	}
+	if provider == "" && len(variants) > 1 {
+		// 在无搜索提供商的降级模式下仅使用原始查询，防止将扩展查询误判为 URL。
+		variants = variants[:1]
+	}
 
 	type result struct {
 		idx   int
@@ -71,9 +75,9 @@ func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]S
 		err   error
 	}
 
-	maxItems := limit * len(variants)
+	maxItems := limit * (len(variants) + 2)
 	if maxItems == 0 {
-		maxItems = limit
+		maxItems = limit * 3
 	}
 
 	resultsChan := make(chan result, len(variants))
@@ -110,22 +114,36 @@ func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]S
 			continue
 		}
 		log.Printf("[search] variant=%d query=\"%s\" results=%d", idx, truncateForLog(variants[idx], 60), len(items))
-		for _, item := range items {
-			key := searchItemKey(item)
-			if key == "" {
-				continue
-			}
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			combined = append(combined, item)
-			if maxItems > 0 && len(combined) >= maxItems {
-				break
-			}
-		}
+		combined = appendUniqueItems(combined, items, seen, maxItems)
 		if maxItems > 0 && len(combined) >= maxItems {
 			break
+		}
+	}
+
+	primaryDomain := extractPrimaryDomain(combined, query)
+	if provider != "" && primaryDomain != "" && (maxItems == 0 || len(combined) < maxItems) {
+		siteQuery := buildSiteSearchQuery(primaryDomain)
+		if siteQuery != "" {
+			siteItems, err := c.searchSingle(ctx, provider, apiKey, siteQuery, limit)
+			if err != nil {
+				log.Printf("[search] provider=%s site_query error=%v", providerLabel(provider), err)
+			} else {
+				log.Printf("[search] site_query domain=%s results=%d", primaryDomain, len(siteItems))
+				combined = appendUniqueItems(combined, annotateSearchItems(siteItems, "站内"), seen, maxItems)
+			}
+		}
+
+		if len(combined) < maxItems {
+			linkedinQuery := buildLinkedInQuery(strings.TrimSpace(query), primaryDomain)
+			if linkedinQuery != "" {
+				linkedItems, err := c.searchSingle(ctx, provider, apiKey, linkedinQuery, min(limit, 4))
+				if err != nil {
+					log.Printf("[search] provider=%s linkedin_query error=%v", providerLabel(provider), err)
+				} else {
+					log.Printf("[search] linkedin_query results=%d", len(linkedItems))
+					combined = appendUniqueItems(combined, annotateSearchItems(linkedItems, "LinkedIn"), seen, maxItems)
+				}
+			}
 		}
 	}
 
@@ -172,29 +190,43 @@ func buildSearchVariants(query string) []string {
 		return nil
 	}
 
-	variants := []string{trimmed}
-	contactQuery := trimmed
+	seen := map[string]struct{}{}
+	var variants []string
+
+	appendVariant := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return
+		}
+		lower := strings.ToLower(candidate)
+		if _, ok := seen[lower]; ok {
+			return
+		}
+		seen[lower] = struct{}{}
+		variants = append(variants, candidate)
+	}
+
+	appendVariant(trimmed)
+
+	if !strings.Contains(trimmed, "官网") {
+		appendVariant(trimmed + " 官网")
+	}
 	if !strings.Contains(trimmed, "联系人") {
-		contactQuery = strings.TrimSpace(trimmed + " 联系人")
+		appendVariant(trimmed + " 联系人")
 	}
-	if !strings.EqualFold(contactQuery, trimmed) {
-		variants = append(variants, contactQuery)
-	}
+
+	roleFocused := fmt.Sprintf(`%s (owner OR founder OR CEO OR "purchasing manager" OR "sourcing director")`, trimmed)
+	appendVariant(roleFocused)
+
 	return variants
 }
 
 func searchItemKey(item SearchItem) string {
 	if normalized := strings.TrimSpace(strings.ToLower(normalizeMaybe(item.URL))); normalized != "" {
-		if strings.Contains(item.Snippet, "搜索未配置") {
-			snippetKey := strings.TrimSpace(strings.ToLower(item.Snippet))
-			if snippetKey != "" {
-				return snippetKey
-			}
-		}
 		return normalized
 	}
 
-	snippetKey := strings.TrimSpace(strings.ToLower(item.Snippet))
+	snippetKey := normalizeSnippet(item.Snippet)
 	if snippetKey != "" {
 		return snippetKey
 	}
@@ -251,6 +283,122 @@ func (c *SearchClient) TestSearch(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func appendUniqueItems(dest []SearchItem, items []SearchItem, seen map[string]struct{}, max int) []SearchItem {
+	for _, item := range items {
+		key := searchItemKey(item)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		dest = append(dest, item)
+		if max > 0 && len(dest) >= max {
+			break
+		}
+	}
+	return dest
+}
+
+func annotateSearchItems(items []SearchItem, tag string) []SearchItem {
+	if tag == "" {
+		return items
+	}
+	prefix := "[" + tag + "] "
+	for i := range items {
+		items[i].Snippet = prefix + strings.TrimSpace(items[i].Snippet)
+	}
+	return items
+}
+
+func providerLabel(provider string) string {
+	if provider == "" {
+		return "direct"
+	}
+	return provider
+}
+
+func extractPrimaryDomain(items []SearchItem, query string) string {
+	for _, item := range items {
+		if strings.TrimSpace(item.URL) == "" {
+			continue
+		}
+		if domain := rootDomain(item.URL); domain != "" {
+			return domain
+		}
+	}
+	if looksLikeURL(query) {
+		if domain := rootDomain(query); domain != "" {
+			return domain
+		}
+	}
+	return ""
+}
+
+func rootDomain(raw string) string {
+	normalized, err := normalizeURL(raw)
+	if err != nil {
+		normalized = raw
+	}
+	parsed, err := url.Parse(normalized)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(strings.TrimSpace(parsed.Host))
+	host = strings.TrimPrefix(host, "www.")
+	return host
+}
+
+func buildSiteSearchQuery(domain string) string {
+	if domain == "" {
+		return ""
+	}
+	keywords := []string{
+		"\"About\"",
+		"\"About Us\"",
+		"\"Team\"",
+		"\"Leadership\"",
+		"\"Contact\"",
+		"\"联系我们\"",
+		"\"关于我们\"",
+		"\"产品\"",
+		"\"服务\"",
+	}
+	return fmt.Sprintf("site:%s (%s)", domain, strings.Join(keywords, " OR "))
+}
+
+func buildLinkedInQuery(query, domain string) string {
+	base := strings.TrimSpace(query)
+	if base == "" && domain != "" {
+		base = domain
+	}
+	if base == "" {
+		return ""
+	}
+	return fmt.Sprintf(`site:linkedin.com (%s) (CEO OR Founder OR "Purchasing Manager" OR "Sourcing Director")`, base)
+}
+
+func normalizeSnippet(snippet string) string {
+	clean := strings.TrimSpace(snippet)
+	if clean == "" {
+		return ""
+	}
+	if strings.HasPrefix(clean, "[") {
+		if idx := strings.Index(clean, "]"); idx >= 0 && idx < len(clean)-1 {
+			clean = strings.TrimSpace(clean[idx+1:])
+		}
+	}
+	return strings.ToLower(clean)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func truncateForLog(input string, limit int) string {

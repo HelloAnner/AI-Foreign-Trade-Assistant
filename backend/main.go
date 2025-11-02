@@ -93,7 +93,7 @@ func run(ctx context.Context) error {
 
 	server := &http.Server{
 		Addr:              appconfig.DefaultHTTPAddr,
-		Handler:           logRequests(mux),
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -128,14 +128,6 @@ func run(ctx context.Context) error {
 		return err
 	}
 	return nil
-}
-
-func logRequests(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
-	})
 }
 
 func resolveDisplayAddr(addr string) (string, error) {

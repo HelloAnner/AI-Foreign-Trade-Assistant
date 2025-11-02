@@ -56,6 +56,7 @@ func (s *AutomationServiceImpl) ProcessNext(ctx context.Context) (bool, error) {
 }
 
 func (s *AutomationServiceImpl) runJob(ctx context.Context, job *domain.AutomationJob) error {
+	log.Printf("[automation] job=%d customer=%d started", job.ID, job.CustomerID)
 	settings, err := s.store.GetSettings(ctx)
 	if err != nil {
 		_ = s.store.MarkAutomationJobFailed(ctx, job.ID, domain.AutomationStagePending, err.Error())
@@ -74,6 +75,7 @@ func (s *AutomationServiceImpl) runJob(ctx context.Context, job *domain.Automati
 	if err := s.store.UpdateAutomationJobStage(ctx, job.ID, domain.AutomationStageGrading); err != nil {
 		return err
 	}
+	log.Printf("[automation] job=%d stage=%s", job.ID, domain.AutomationStageGrading)
 
 	suggestion, err := s.grader.Suggest(ctx, job.CustomerID)
 	if err != nil {
@@ -91,9 +93,11 @@ func (s *AutomationServiceImpl) runJob(ctx context.Context, job *domain.Automati
 		_ = s.store.MarkAutomationJobFailed(ctx, job.ID, domain.AutomationStageGrading, err.Error())
 		return err
 	}
+	log.Printf("[automation] job=%d grading grade=%s", job.ID, grade)
 
 	if grade != requiredGrade {
 		msg := fmt.Sprintf("评级为 %s，未达到自动化阈值 %s，自动化结束", grade, requiredGrade)
+		log.Printf("[automation] job=%d stop reason=%s", job.ID, msg)
 		if err := s.store.MarkAutomationJobStopped(ctx, job.ID, msg); err != nil {
 			return err
 		}
@@ -104,15 +108,18 @@ func (s *AutomationServiceImpl) runJob(ctx context.Context, job *domain.Automati
 	if err := s.store.UpdateAutomationJobStage(ctx, job.ID, domain.AutomationStageAnalysis); err != nil {
 		return err
 	}
+	log.Printf("[automation] job=%d stage=%s", job.ID, domain.AutomationStageAnalysis)
 	if _, err := s.analyst.Generate(ctx, job.CustomerID); err != nil {
 		_ = s.store.MarkAutomationJobFailed(ctx, job.ID, domain.AutomationStageAnalysis, err.Error())
 		return err
 	}
+	log.Printf("[automation] job=%d analysis generated", job.ID)
 
 	// Stage: email drafting
 	if err := s.store.UpdateAutomationJobStage(ctx, job.ID, domain.AutomationStageEmail); err != nil {
 		return err
 	}
+	log.Printf("[automation] job=%d stage=%s", job.ID, domain.AutomationStageEmail)
 	emailDraft, err := s.email.DraftInitial(ctx, job.CustomerID)
 	if err != nil {
 		_ = s.store.MarkAutomationJobFailed(ctx, job.ID, domain.AutomationStageEmail, err.Error())
@@ -124,11 +131,13 @@ func (s *AutomationServiceImpl) runJob(ctx context.Context, job *domain.Automati
 		_ = s.store.MarkAutomationJobFailed(ctx, job.ID, domain.AutomationStageEmail, err.Error())
 		return err
 	}
+	log.Printf("[automation] job=%d email_draft id=%d", job.ID, emailID)
 
 	// Stage: follow-up bookkeeping & scheduling
 	if err := s.store.UpdateAutomationJobStage(ctx, job.ID, domain.AutomationStageFollowup); err != nil {
 		return err
 	}
+	log.Printf("[automation] job=%d stage=%s", job.ID, domain.AutomationStageFollowup)
 
 	followupID, ferr := s.store.GetLatestFollowupID(ctx, job.CustomerID)
 	if ferr != nil {
@@ -139,6 +148,7 @@ func (s *AutomationServiceImpl) runJob(ctx context.Context, job *domain.Automati
 			_ = s.store.MarkAutomationJobFailed(ctx, job.ID, domain.AutomationStageFollowup, err.Error())
 			return err
 		}
+		log.Printf("[automation] job=%d followup created", job.ID)
 	}
 
 	scheduled, serr := s.store.GetLatestScheduledTask(ctx, job.CustomerID)
@@ -161,11 +171,13 @@ func (s *AutomationServiceImpl) runJob(ctx context.Context, job *domain.Automati
 			_ = s.store.MarkAutomationJobFailed(ctx, job.ID, domain.AutomationStageFollowup, err.Error())
 			return err
 		}
+		log.Printf("[automation] job=%d followup scheduled delay_days=%d", job.ID, delay)
 	}
 
 	if err := s.store.MarkAutomationJobCompleted(ctx, job.ID, domain.AutomationStageCompleted); err != nil {
 		return err
 	}
+	log.Printf("[automation] job=%d completed", job.ID)
 	return s.store.DeleteAutomationJob(ctx, job.ID)
 }
 

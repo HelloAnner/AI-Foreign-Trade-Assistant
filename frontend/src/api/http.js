@@ -10,7 +10,11 @@ http.interceptors.response.use(
   (error) => {
     const message =
       error.response?.data?.error || error.message || '请求失败，请稍后再试。'
-    return Promise.reject(new Error(message))
+    const wrapped = new Error(message)
+    if (error.response) {
+      wrapped.response = error.response
+    }
+    return Promise.reject(wrapped)
   }
 )
 

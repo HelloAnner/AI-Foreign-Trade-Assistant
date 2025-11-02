@@ -162,12 +162,20 @@ func (h *Handlers) ResolveCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing, contacts, err := h.Store.FindCustomerByQuery(r.Context(), req.Query)
+	query := strings.TrimSpace(req.Query)
+	if query == "" {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: "请输入客户公司名称或官网地址"})
+		return
+	}
+	log.Printf("[flow] resolve request query=%s", query)
+
+	existing, contacts, err := h.Store.FindCustomerByQuery(r.Context(), query)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
 		return
 	}
 	if existing != nil {
+		log.Printf("[flow] resolve hit existing customer_id=%d name=%s", existing.ID, strings.TrimSpace(existing.Name))
 		response := domain.ResolveCompanyResponse{
 			CustomerID:  existing.ID,
 			Name:        existing.Name,
@@ -234,6 +242,8 @@ func (h *Handlers) ResolveCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Query = query
+	log.Printf("[flow] resolve new query=%s entering enrichment", query)
 	result, err := h.ServiceBundle.Enricher.ResolveCompany(r.Context(), &req)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
@@ -281,6 +291,7 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	log.Printf("[customers] created customer id=%d name=%s", id, strings.TrimSpace(req.Name))
 	writeJSON(w, http.StatusOK, Response{OK: true, Data: payload})
 }
 
@@ -321,6 +332,9 @@ func (h *Handlers) EnqueueAutomation(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
 		return
 	}
+	if job != nil {
+		log.Printf("[automation] queued job id=%d customer=%d", job.ID, customerID)
+	}
 	writeJSON(w, http.StatusOK, Response{OK: true, Data: job})
 }
 
@@ -340,6 +354,7 @@ func (h *Handlers) UpdateCompany(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
 		return
 	}
+	log.Printf("[customers] updated customer id=%d name=%s", customerID, strings.TrimSpace(req.Name))
 	writeJSON(w, http.StatusOK, Response{OK: true, Data: map[string]int64{"customer_id": customerID}})
 }
 

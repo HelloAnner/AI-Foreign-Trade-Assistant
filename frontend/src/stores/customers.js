@@ -162,7 +162,8 @@ export const useCustomersStore = defineStore('customers', {
         return payload.data || null
       } catch (error) {
         console.error('Failed to rerun automation', error)
-        ui.pushToast(error.message, 'error')
+        const status = error?.response?.status
+        ui.pushToast(error.message, status === 409 ? 'info' : 'error')
         return null
       }
     },

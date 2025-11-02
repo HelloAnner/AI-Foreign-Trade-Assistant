@@ -27,6 +27,8 @@ type Contact struct {
 	Phone  string `json:"phone,omitempty"`
 	Source string `json:"source,omitempty"`
 	IsKey  bool   `json:"is_key"`
+	// IsKeyDecisionMaker mirrors the JSON field returned by the enrichment model.
+	IsKeyDecisionMaker bool `json:"is_key_decision_maker,omitempty"`
 }
 
 // CandidateWebsite represents a possible official website candidate.
@@ -47,6 +49,7 @@ type ResolveCompanyResponse struct {
 	CustomerID    int64               `json:"customer_id,omitempty"`
 	Name          string              `json:"name,omitempty"`
 	Website       string              `json:"website"`
+	WebsiteConfidence float64         `json:"website_confidence,omitempty"`
 	Country       string              `json:"country"`
 	Contacts      []Contact           `json:"contacts"`
 	Candidates    []CandidateWebsite  `json:"candidates"`

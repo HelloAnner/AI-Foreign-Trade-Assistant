@@ -181,7 +181,8 @@ export const useFlowStore = defineStore('flow', {
           email: item.email?.trim() || '',
           phone: item.phone?.trim() || '',
           source: item.source?.trim() || '',
-          is_key: index === 0 || Boolean(item.is_key),
+          is_key: index === 0 || Boolean(item.is_key) || Boolean(item.is_key_decision_maker),
+          is_key_decision_maker: Boolean(item.is_key_decision_maker ?? item.is_key ?? index === 0),
         }))
       }
 
@@ -277,10 +278,19 @@ export const useFlowStore = defineStore('flow', {
     async saveCompany(company, options = {}) {
       const ui = useUiStore()
       const { silent = false, advanceStep = true } = options || {}
+      const trimmedName = (company.name || '').trim()
+      const fallbackName = trimmedName || (this.query || '').trim() || (company.website || this.website || '').trim()
+      if (!fallbackName) {
+        const message = '客户名称不能为空'
+        if (!silent) {
+          ui.pushToast(message, 'error')
+        }
+        throw new Error(message)
+      }
       const payload = {
-        name: company.name,
-        website: company.website || this.website,
-        country: company.country || this.country,
+        name: fallbackName,
+        website: (company.website || this.website || '').trim(),
+        country: (company.country || this.country || '').trim(),
         summary: company.summary || this.summary,
         contacts: this.contacts,
       }
@@ -435,7 +445,8 @@ export const useFlowStore = defineStore('flow', {
         this.query = ''
         return job
       } catch (error) {
-        ui.pushToast(error.message, 'error')
+        const status = error?.response?.status
+        ui.pushToast(error.message, status === 409 ? 'info' : 'error')
         this.refreshCustomerDetail(true)
         throw error
       }

@@ -9,19 +9,25 @@ import (
 
 func TestBuildSearchVariants(t *testing.T) {
 	variants := buildSearchVariants("环球贸易有限公司")
-	if len(variants) != 2 {
-		t.Fatalf("expected 2 variants, got %d", len(variants))
+	if len(variants) != 4 {
+		t.Fatalf("expected 4 variants, got %d", len(variants))
 	}
 	if variants[0] != "环球贸易有限公司" {
 		t.Fatalf("unexpected first variant: %s", variants[0])
 	}
-	if variants[1] != "环球贸易有限公司 联系人" {
+	if variants[1] != "环球贸易有限公司 官网" {
 		t.Fatalf("unexpected second variant: %s", variants[1])
+	}
+	if variants[2] != "环球贸易有限公司 联系人" {
+		t.Fatalf("unexpected third variant: %s", variants[2])
+	}
+	if variants[3] != "环球贸易有限公司 (owner OR founder OR CEO OR \"purchasing manager\" OR \"sourcing director\")" {
+		t.Fatalf("unexpected fourth variant: %s", variants[3])
 	}
 
 	variants = buildSearchVariants("上海制造联系人")
-	if len(variants) != 1 {
-		t.Fatalf("expected 1 variant when query already contains 联系人, got %d", len(variants))
+	if len(variants) != 3 {
+		t.Fatalf("expected 3 variants when query already contains 联系人, got %d", len(variants))
 	}
 }
 
