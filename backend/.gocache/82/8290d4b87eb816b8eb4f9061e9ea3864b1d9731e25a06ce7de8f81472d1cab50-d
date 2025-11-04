@@ -1,7 +1,0 @@
-./chain.go
-./chi.go
-./context.go
-./mux.go
-./path_value.go
-./pattern.go
-./tree.go

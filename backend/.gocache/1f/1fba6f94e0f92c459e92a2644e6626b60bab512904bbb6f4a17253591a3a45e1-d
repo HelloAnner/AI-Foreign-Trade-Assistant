@@ -1,5 +1,0 @@
-./appenders.go
-./extension.go
-./options.go
-./specifications.go
-./strftime.go
