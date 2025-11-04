@@ -170,19 +170,20 @@ type ScheduleResponse struct {
 
 // ScheduledTask is used when listing scheduled followups.
 type ScheduledTask struct {
-	ID               int64  `json:"id"`
-	CustomerID       int64  `json:"customer_id"`
-	DueAt            string `json:"due_at"`
-	Status           string `json:"status"`
-	ContextEmailID   int64  `json:"context_email_id"`
-	GeneratedEmailID int64  `json:"generated_email_id"`
-	LastError        string `json:"last_error,omitempty"`
-	Mode             string `json:"mode,omitempty"`
-	DelayValue       int    `json:"delay_value,omitempty"`
-	DelayUnit        string `json:"delay_unit,omitempty"`
-	CronExpression   string `json:"cron_expression,omitempty"`
-	CreatedAt        string `json:"created_at"`
-	UpdatedAt        string `json:"updated_at"`
+    ID               int64  `json:"id"`
+    CustomerID       int64  `json:"customer_id"`
+    DueAt            string `json:"due_at"`
+    Status           string `json:"status"`
+    ContextEmailID   int64  `json:"context_email_id"`
+    GeneratedEmailID int64  `json:"generated_email_id"`
+    LastError        string `json:"last_error,omitempty"`
+    Mode             string `json:"mode,omitempty"`
+    DelayValue       int    `json:"delay_value,omitempty"`
+    DelayUnit        string `json:"delay_unit,omitempty"`
+    CronExpression   string `json:"cron_expression,omitempty"`
+    Attempts         int    `json:"attempts,omitempty"`
+    CreatedAt        string `json:"created_at"`
+    UpdatedAt        string `json:"updated_at"`
 }
 
 // AutomationJob describes a background automation workflow execution.
@@ -196,6 +197,19 @@ type AutomationJob struct {
 	FinishedAt string `json:"finished_at,omitempty"`
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
+}
+
+// TodoTask persists raw user queries for background processing.
+type TodoTask struct {
+    ID         int64  `json:"id"`
+    Query      string `json:"query"`
+    Status     string `json:"status"`
+    LastError  string `json:"last_error,omitempty"`
+    CustomerID int64  `json:"customer_id,omitempty"`
+    StartedAt  string `json:"started_at,omitempty"`
+    FinishedAt string `json:"finished_at,omitempty"`
+    CreatedAt  string `json:"created_at"`
+    UpdatedAt  string `json:"updated_at"`
 }
 
 // CustomerSummary represents the lightweight information shown in the customer list.

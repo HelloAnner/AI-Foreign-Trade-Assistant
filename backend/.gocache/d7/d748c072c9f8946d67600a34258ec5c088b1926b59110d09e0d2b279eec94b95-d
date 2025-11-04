@@ -1,0 +1,7 @@
+./automation.go
+./customers.go
+./emails.go
+./errors.go
+./settings.go
+./store.go
+./tasks.go

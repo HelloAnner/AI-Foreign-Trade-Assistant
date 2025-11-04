@@ -32,10 +32,11 @@ func (g *GradingServiceImpl) Suggest(ctx context.Context, customerID int64) (*do
 	if err != nil {
 		return nil, fmt.Errorf("读取配置失败: %w", err)
 	}
-	guideline := strings.TrimSpace(settings.RatingGuideline)
-	if guideline == "" {
-		guideline = "A级：核心目标客户；B级：潜在合作伙伴；C级：暂不跟进。"
-	}
+    guideline := strings.TrimSpace(settings.RatingGuideline)
+    if guideline == "" {
+        // Use the built-in comprehensive default when no guideline is configured.
+        guideline = defaultRatingGuideline
+    }
 
 	prompt := buildGradingPrompt(customer, guideline)
 	content, _, err := g.llm.Chat(ctx, []ChatMessage{

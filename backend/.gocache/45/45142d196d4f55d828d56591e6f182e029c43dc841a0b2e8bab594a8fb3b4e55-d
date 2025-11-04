@@ -1,0 +1,7 @@
+./auth.go
+./doc.go
+./message.go
+./mime.go
+./send.go
+./smtp.go
+./writeto.go

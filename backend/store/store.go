@@ -137,6 +137,7 @@ func (s *Store) InitSchema(ctx context.Context) error {
 			delay_value INTEGER DEFAULT 0,
 			delay_unit TEXT,
 			cron_expression TEXT,
+			attempts INTEGER DEFAULT 0,
 			created_at TEXT,
 			updated_at TEXT,
 			FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE,
@@ -154,6 +155,17 @@ func (s *Store) InitSchema(ctx context.Context) error {
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
 			FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS todo_tasks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			query TEXT NOT NULL,
+			status TEXT NOT NULL,
+			last_error TEXT,
+			customer_id INTEGER,
+			started_at TEXT,
+			finished_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
 		);`,
 		`CREATE TABLE IF NOT EXISTS logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -216,6 +228,12 @@ func (s *Store) InitSchema(ctx context.Context) error {
 	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE scheduled_tasks ADD COLUMN cron_expression TEXT`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column name") {
 			return fmt.Errorf("ensure cron_expression column: %w", err)
+		}
+	}
+
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE scheduled_tasks ADD COLUMN attempts INTEGER DEFAULT 0`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure attempts column: %w", err)
 		}
 	}
 

@@ -1,0 +1,11 @@
+./analysis.go
+./automation.go
+./bundle.go
+./email.go
+./enrichment.go
+./grading.go
+./llm.go
+./mail.go
+./scheduler.go
+./search.go
+./webscrape.go

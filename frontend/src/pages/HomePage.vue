@@ -25,6 +25,7 @@ import FlowLayout from '../components/flow/FlowLayout.vue'
 import { useRouter } from 'vue-router'
 import { useFlowStore } from '../stores/flow'
 import { useSettingsStore } from '../stores/settings'
+import { useUiStore } from '../stores/ui'
 
 const router = useRouter()
 const flowStore = useFlowStore()
@@ -76,9 +77,16 @@ const handleSubmit = async () => {
   }
 
   if (automationEnabled.value) {
-    flowStore.queueAutomation(trimmed).catch(() => {
-      /* 错误已在 store 中提示 */
-    })
+    // 自动化模式：将任务入队到后端 TODO 队列，后台线程统一处理
+    try {
+      const { enqueueTodo } = await import('../api/flow')
+      const resp = await enqueueTodo(trimmed)
+      const ui = useUiStore()
+      if (resp?.ok) ui.pushToast('已加入任务队列，后台处理中', 'success')
+    } catch (err) {
+      const ui = useUiStore()
+      ui.pushToast(err.message || '入队失败', 'error')
+    }
     queryInput.value = ''
     return
   }

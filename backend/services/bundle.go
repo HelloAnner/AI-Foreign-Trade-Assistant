@@ -22,14 +22,15 @@ type Bundle struct {
 	Grader        GradingService
 	Analyst       AnalysisService
 	EmailComposer EmailComposerService
-	Scheduler     SchedulerService
-	Automation    AutomationService
+    Scheduler     SchedulerService
+    Automation    AutomationService
+    Todo          TodoService
 }
 
 // Options describes dependencies shared across services.
 type Options struct {
-	Store      *store.Store
-	HTTPClient *http.Client
+    Store      *store.Store
+    HTTPClient *http.Client
 }
 
 // LLMService validates credentials and proxies prompt calls.
@@ -195,9 +196,10 @@ func NewBundle(opts Options) *Bundle {
 	analyst := NewAnalysisService(opts.Store, llmClient)
 	emailComposer := NewEmailComposerService(opts.Store, llmClient)
 	scheduler := NewSchedulerService(opts.Store, emailComposer, mailer)
-	automation := NewAutomationService(opts.Store, grader, analyst, emailComposer, scheduler)
+    automation := NewAutomationService(opts.Store, grader, analyst, emailComposer, scheduler)
+    todo := NewTodoService(opts.Store, enricher, automation)
 
-	return &Bundle{
+    return &Bundle{
 		LLM:           llmClient,
 		Mailer:        mailer,
 		Search:        search,
@@ -205,7 +207,8 @@ func NewBundle(opts Options) *Bundle {
 		Grader:        grader,
 		Analyst:       analyst,
 		EmailComposer: emailComposer,
-		Scheduler:     scheduler,
-		Automation:    automation,
-	}
+        Scheduler:     scheduler,
+        Automation:    automation,
+        Todo:          todo,
+    }
 }

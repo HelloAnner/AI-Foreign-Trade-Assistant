@@ -71,6 +71,13 @@ func run(ctx context.Context) error {
 	runner := task.NewRunner(dataStore, bundle.Scheduler)
 	runner.Start(ctx)
 
+	// Start Todo runner for persisted input queue
+	todoRunner := task.NewTodoRunner(bundle.Todo)
+	if todoRunner != nil {
+		todoRunner.Start(ctx)
+		defer todoRunner.Stop()
+	}
+
 	automationRunner := task.NewAutomationRunner(bundle.Automation)
 	if automationRunner != nil {
 		automationRunner.Start(ctx)

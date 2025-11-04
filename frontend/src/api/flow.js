@@ -70,6 +70,11 @@ export const enqueueAutomation = async (customerId) => {
   return data
 }
 
+export const enqueueTodo = async (query) => {
+  const { data } = await http.post('/todos', { query })
+  return data
+}
+
 export const listScheduledTasks = async (status) => {
   const { data } = await http.get('/scheduled-tasks', {
     params: { status },

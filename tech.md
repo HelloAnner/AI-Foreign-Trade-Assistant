@@ -328,3 +328,12 @@ Step 5：设置自动化邮件跟进
 单元测试
 
 使用 config 下的配置文件信息完成单元测试, 要求LLM 都是真实调用的, 搜索 API 也需要真实调用; 单元测试禁止mock 数据
+9) todo_tasks（入队但尚未处理的原始查询）
+- query TEXT
+- status TEXT（queued/running/completed/failed）
+- last_error TEXT
+- customer_id INTEGER（完成后关联到的客户ID）
+- started_at TEXT
+- finished_at TEXT
+
+- POST /api/todos 入队一条查询，后台线程异步处理（解析→入库→入队自动化）

@@ -659,11 +659,18 @@ func (s *Store) CreateCustomer(ctx context.Context, req *domain.CreateCompanyReq
 		return 0, fmt.Errorf("客户名称不能为空")
 	}
 
-	if exists, err := s.customerExistsByNameOrWebsite(ctx, req.Name, req.Website); err != nil {
-		return 0, err
-	} else if exists {
-		return 0, fmt.Errorf("客户已存在")
-	}
+    if exists, err := s.customerExistsByNameOrWebsite(ctx, req.Name, req.Website); err != nil {
+        return 0, err
+    } else if exists {
+        // Idempotent create: return existing customer's ID instead of error.
+        if c, _, ferr := s.FindCustomerByQuery(ctx, req.Name); ferr == nil && c != nil && c.ID > 0 {
+            return c.ID, nil
+        }
+        if c, _, ferr := s.FindCustomerByQuery(ctx, req.Website); ferr == nil && c != nil && c.ID > 0 {
+            return c.ID, nil
+        }
+        return 0, fmt.Errorf("客户已存在")
+    }
 
 	source := req.SourceJSON
 	if len(source) == 0 {
