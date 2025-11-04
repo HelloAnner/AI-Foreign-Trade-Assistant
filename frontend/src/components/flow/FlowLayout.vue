@@ -47,7 +47,7 @@
         </button>
       </div>
 
-      <header class="flow-headline">
+      <header class="flow-headline" v-if="title || subtitle">
         <h1>{{ title }}</h1>
         <p v-if="subtitle">{{ subtitle }}</p>
       </header>

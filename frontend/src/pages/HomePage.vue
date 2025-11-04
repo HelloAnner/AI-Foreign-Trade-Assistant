@@ -1,5 +1,5 @@
 <template>
-  <FlowLayout :step="0" :total="0" title="AI 外贸客户开发助手" subtitle="输入潜在客户公司名称或官网，AI 将自动完成信息获取。">
+  <FlowLayout :step="0" :total="0">
     <section class="home">
       <h2>智能客户信息获取</h2>
       <p>支持公司中文/英文全称或官网地址，系统会自动匹配并拉取公开信息。</p>
@@ -9,7 +9,7 @@
           :disabled="!automationEnabled && flowStore.resolving"
           @keydown.enter.prevent="handleSubmit"
           type="text"
-          placeholder="例如：环球贸易有限公司 或 https://www.example.com"
+          placeholder="请输入公司名称（支持逗号分隔批量添加：如 大众, AWS）"
         />
         <button type="submit" :disabled="!queryInput || (!automationEnabled && flowStore.resolving)">
           {{ submitLabel }}
@@ -77,14 +77,26 @@ const handleSubmit = async () => {
   }
 
   if (automationEnabled.value) {
-    // 自动化模式：将任务入队到后端 TODO 队列，后台线程统一处理
+    // 自动化模式：支持以逗号/中文逗号/分号/换行分隔的批量入队
+    const items = (trimmed || '')
+      .split(/[，,；;\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+
+    const ui = useUiStore()
     try {
       const { enqueueTodo } = await import('../api/flow')
-      const resp = await enqueueTodo(trimmed)
-      const ui = useUiStore()
-      if (resp?.ok) ui.pushToast('已加入任务队列，后台处理中', 'success')
+      if (items.length <= 1) {
+        const resp = await enqueueTodo(items[0] || trimmed)
+        if (resp?.ok) ui.pushToast('已加入任务队列，后台处理中', 'success')
+      } else {
+        const results = await Promise.allSettled(items.map((q) => enqueueTodo(q)))
+        const ok = results.filter((r) => r.status === 'fulfilled' && r.value?.ok).length
+        const fail = results.length - ok
+        if (ok) ui.pushToast(`已入队 ${ok} 条任务`, 'success')
+        if (fail) ui.pushToast(`${fail} 条任务入队失败`, 'error')
+      }
     } catch (err) {
-      const ui = useUiStore()
       ui.pushToast(err.message || '入队失败', 'error')
     }
     queryInput.value = ''
@@ -101,7 +113,8 @@ const handleSubmit = async () => {
 <style scoped>
 .home {
   margin: 80px auto 0;
-  max-width: 640px;
+  width: 66.6667%;
+  max-width: 1200px;
   background: var(--surface-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
@@ -171,6 +184,7 @@ const handleSubmit = async () => {
 @media (max-width: 768px) {
   .home {
     margin-top: 40px;
+    width: 100%;
     padding: 32px 24px;
   }
 
