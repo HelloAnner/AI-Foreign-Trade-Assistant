@@ -75,3 +75,21 @@ func TestBuildSMTPInputsValidation(t *testing.T) {
 		t.Fatalf("expected password error, got %v", err)
 	}
 }
+
+func TestComposeEmailBodies(t *testing.T) {
+	settings := &store.Settings{
+		MyCompanyName: "Acme Inc.",
+		MyProduct:     "High-efficiency widgets",
+		SMTPUsername:  "sales@acme.com",
+		AdminEmail:    "ops@acme.com",
+	}
+	subject := "Partnership Opportunity"
+	body := "Hello John,\n\nThanks for your time last week.\nWe would love to introduce our new line."
+	plain, html := composeEmailBodies(subject, body, settings)
+	if !strings.Contains(plain, "Warm regards") || !strings.Contains(plain, "Please feel free to reply directly") {
+		t.Fatalf("plain body missing closing: %s", plain)
+	}
+	if !strings.Contains(html, "<a class=\"cta\"") || !strings.Contains(html, "mailto:sales%40acme.com") {
+		t.Fatalf("html body not formatted: %s", html)
+	}
+}
