@@ -115,6 +115,17 @@
 
         <section class="section">
           <h4>自动跟进计划</h4>
+          <button
+            type="button"
+            class="followup-toggle"
+            :class="followupSent ? 'is-paused' : 'is-active'"
+            :disabled="followupToggleLoading"
+            @click="toggleFollowupFlag"
+          >
+            <span class="followup-toggle__status">
+              自动邮件：{{ followupSent ? '已发送一次（暂停）' : '按计划等待发送' }}
+            </span>
+          </button>
           <div class="schedule">
             <div class="schedule__current" v-if="followupSummary">
               <span class="label">当前计划</span>
@@ -190,6 +201,7 @@
 <script setup>
 import { computed, reactive, watch, ref } from 'vue'
 import { useUiStore } from '../../stores/ui'
+import { useCustomersStore } from '../../stores/customers'
 import {
   updateCompany,
   confirmGrade,
@@ -206,6 +218,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'updated'])
 
 const ui = useUiStore()
+const customersStore = useCustomersStore()
 
 const form = reactive({
   id: null,
@@ -252,6 +265,9 @@ const original = reactive({
 })
 
 const saving = ref(false)
+const followupToggleLoading = ref(false)
+
+const followupSent = computed(() => Boolean(props.customer?.followup_sent))
 
 const formatDate = (value) => {
   if (!value) return '—'
@@ -348,6 +364,16 @@ const addContact = () => {
 
 const removeContact = (index) => {
   form.contacts.splice(index, 1)
+}
+
+const toggleFollowupFlag = async () => {
+  if (!form.id || followupToggleLoading.value) return
+  followupToggleLoading.value = true
+  try {
+    await customersStore.updateFollowupStatus(form.id, !followupSent.value)
+  } finally {
+    followupToggleLoading.value = false
+  }
 }
 
 const applyFollowupQuick = (value, unit) => {
@@ -554,6 +580,41 @@ const handleSave = async () => {
   margin: 0;
   font-size: 18px;
   font-weight: 700;
+}
+
+.followup-toggle {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.followup-toggle.is-active {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.followup-toggle.is-paused {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.followup-toggle:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.followup-toggle__status {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
 }
 
 .section__head {

@@ -76,16 +76,17 @@ type CreateCompanyRequest struct {
 
 // Customer represents a stored customer record.
 type Customer struct {
-	ID          int64
-	Name        string
-	Website     string
-	Country     string
-	Grade       string
-	GradeReason string
-	Summary     string
-	SourceJSON  json.RawMessage
-	CreatedAt   string
-	UpdatedAt   string
+	ID           int64
+	Name         string
+	Website      string
+	Country      string
+	Grade        string
+	GradeReason  string
+	Summary      string
+	FollowupSent bool
+	SourceJSON   json.RawMessage
+	CreatedAt    string
+	UpdatedAt    string
 }
 
 // EmailRecord reflects a stored email row.
@@ -170,20 +171,20 @@ type ScheduleResponse struct {
 
 // ScheduledTask is used when listing scheduled followups.
 type ScheduledTask struct {
-    ID               int64  `json:"id"`
-    CustomerID       int64  `json:"customer_id"`
-    DueAt            string `json:"due_at"`
-    Status           string `json:"status"`
-    ContextEmailID   int64  `json:"context_email_id"`
-    GeneratedEmailID int64  `json:"generated_email_id"`
-    LastError        string `json:"last_error,omitempty"`
-    Mode             string `json:"mode,omitempty"`
-    DelayValue       int    `json:"delay_value,omitempty"`
-    DelayUnit        string `json:"delay_unit,omitempty"`
-    CronExpression   string `json:"cron_expression,omitempty"`
-    Attempts         int    `json:"attempts,omitempty"`
-    CreatedAt        string `json:"created_at"`
-    UpdatedAt        string `json:"updated_at"`
+	ID               int64  `json:"id"`
+	CustomerID       int64  `json:"customer_id"`
+	DueAt            string `json:"due_at"`
+	Status           string `json:"status"`
+	ContextEmailID   int64  `json:"context_email_id"`
+	GeneratedEmailID int64  `json:"generated_email_id"`
+	LastError        string `json:"last_error,omitempty"`
+	Mode             string `json:"mode,omitempty"`
+	DelayValue       int    `json:"delay_value,omitempty"`
+	DelayUnit        string `json:"delay_unit,omitempty"`
+	CronExpression   string `json:"cron_expression,omitempty"`
+	Attempts         int    `json:"attempts,omitempty"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
 }
 
 // AutomationJob describes a background automation workflow execution.
@@ -201,15 +202,15 @@ type AutomationJob struct {
 
 // TodoTask persists raw user queries for background processing.
 type TodoTask struct {
-    ID         int64  `json:"id"`
-    Query      string `json:"query"`
-    Status     string `json:"status"`
-    LastError  string `json:"last_error,omitempty"`
-    CustomerID int64  `json:"customer_id,omitempty"`
-    StartedAt  string `json:"started_at,omitempty"`
-    FinishedAt string `json:"finished_at,omitempty"`
-    CreatedAt  string `json:"created_at"`
-    UpdatedAt  string `json:"updated_at"`
+	ID         int64  `json:"id"`
+	Query      string `json:"query"`
+	Status     string `json:"status"`
+	LastError  string `json:"last_error,omitempty"`
+	CustomerID int64  `json:"customer_id,omitempty"`
+	StartedAt  string `json:"started_at,omitempty"`
+	FinishedAt string `json:"finished_at,omitempty"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
 // CustomerSummary represents the lightweight information shown in the customer list.
@@ -223,6 +224,7 @@ type CustomerSummary struct {
 	LastFollowupAt string `json:"last_followup_at,omitempty"`
 	NextFollowupAt string `json:"next_followup_at,omitempty"`
 	Status         string `json:"status"`
+	FollowupSent   bool   `json:"followup_sent"`
 }
 
 // CustomerDetail aggregates all five workflow steps for editing.
@@ -234,6 +236,7 @@ type CustomerDetail struct {
 	Summary       string              `json:"summary"`
 	Grade         string              `json:"grade"`
 	GradeReason   string              `json:"grade_reason"`
+	FollowupSent  bool                `json:"followup_sent"`
 	Contacts      []Contact           `json:"contacts"`
 	Analysis      *AnalysisResponse   `json:"analysis,omitempty"`
 	EmailDraft    *EmailDraftResponse `json:"email_draft,omitempty"`

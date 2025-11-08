@@ -19,3 +19,10 @@ export const triggerAutomation = async (customerId) => {
   const { data } = await http.post(`/companies/${customerId}/automation`)
   return data
 }
+
+export const updateFollowupStatus = async (customerId, followupSent) => {
+  const { data } = await http.put(`/customers/${customerId}/followup-flag`, {
+    followup_sent: !!followupSent,
+  })
+  return data
+}

@@ -154,6 +154,44 @@ func (s *SchedulerServiceImpl) RunNow(ctx context.Context, taskID int64) error {
 		return s.store.RescheduleTaskAfterFailure(ctx, taskID, nextDue, nextAttempts, errMsg)
 	}
 
+	scheduleNextCron := func() {
+		if task.Mode == "cron" && strings.TrimSpace(task.CronExpression) != "" {
+			if schedule, err := parseCronExpression(task.CronExpression); err != nil {
+				log.Printf("reschedule cron task %d parse error: %v", task.ID, err)
+			} else {
+				next := schedule.Next(time.Now())
+				if next.IsZero() || !next.After(time.Now()) {
+					log.Printf("reschedule cron task %d: next occurrence not found", task.ID)
+				} else {
+					if _, err := s.store.CreateScheduledTask(ctx, &store.ScheduledTaskInput{
+						CustomerID:     task.CustomerID,
+						ContextEmailID: task.ContextEmailID,
+						DueAt:          next,
+						Mode:           "cron",
+						CronExpression: task.CronExpression,
+					}); err != nil {
+						log.Printf("reschedule cron task %d insert error: %v", task.ID, err)
+					}
+				}
+			}
+		}
+	}
+
+	customer, err := s.store.GetCustomer(ctx, task.CustomerID)
+	if err != nil {
+		_ = reschedule(task.Attempts, err.Error())
+		return err
+	}
+
+	if customer.FollowupSent {
+		msg := "客户已标记为“仅发送一次”，本次自动邮件已跳过。如需继续发送，请在客户详情中选择“继续发送”。"
+		if err := finalize("skipped", sql.NullInt64{}, msg); err != nil {
+			return err
+		}
+		scheduleNextCron()
+		return nil
+	}
+
 	adminRecipient, err := s.requireAdminEmail(ctx)
 	if err != nil {
 		_ = reschedule(task.Attempts, err.Error())
@@ -185,30 +223,15 @@ func (s *SchedulerServiceImpl) RunNow(ctx context.Context, taskID int64) error {
 		return err
 	}
 
+	if err := s.store.UpdateFollowupSent(ctx, task.CustomerID, true); err != nil {
+		log.Printf("update followup flag failed customer=%d: %v", task.CustomerID, err)
+	}
+
 	if err := finalize("sent", sql.NullInt64{Int64: emailID, Valid: true}, ""); err != nil {
 		return err
 	}
 
-	if task.Mode == "cron" && strings.TrimSpace(task.CronExpression) != "" {
-		if schedule, err := parseCronExpression(task.CronExpression); err != nil {
-			log.Printf("reschedule cron task %d parse error: %v", task.ID, err)
-		} else {
-			next := schedule.Next(time.Now())
-			if next.IsZero() || !next.After(time.Now()) {
-				log.Printf("reschedule cron task %d: next occurrence not found", task.ID)
-			} else {
-				if _, err := s.store.CreateScheduledTask(ctx, &store.ScheduledTaskInput{
-					CustomerID:     task.CustomerID,
-					ContextEmailID: task.ContextEmailID,
-					DueAt:          next,
-					Mode:           "cron",
-					CronExpression: task.CronExpression,
-				}); err != nil {
-					log.Printf("reschedule cron task %d insert error: %v", task.ID, err)
-				}
-			}
-		}
-	}
+	scheduleNextCron()
 	return nil
 }
 

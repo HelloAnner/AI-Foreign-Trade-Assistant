@@ -74,6 +74,7 @@ func (s *Store) InitSchema(ctx context.Context) error {
 			grade TEXT,
 			grade_reason TEXT,
 			summary TEXT,
+			followup_sent INTEGER DEFAULT 0,
 			source_json TEXT,
 			created_at TEXT,
 			updated_at TEXT
@@ -234,6 +235,12 @@ func (s *Store) InitSchema(ctx context.Context) error {
 	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE scheduled_tasks ADD COLUMN attempts INTEGER DEFAULT 0`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column name") {
 			return fmt.Errorf("ensure attempts column: %w", err)
+		}
+	}
+
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE customers ADD COLUMN followup_sent INTEGER DEFAULT 0`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure followup_sent column: %w", err)
 		}
 	}
 

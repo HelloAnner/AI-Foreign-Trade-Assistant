@@ -53,16 +53,17 @@
               <th>公司</th>
               <th>国家/地区</th>
               <th>评级</th>
+              <th>自动邮件</th>
               <th>最后跟进</th>
               <th class="actions">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="loading">
-              <td colspan="5" class="empty">加载中…</td>
+              <td colspan="6" class="empty">加载中…</td>
             </tr>
             <tr v-else-if="!items.length">
-              <td colspan="5" class="empty">暂无客户记录</td>
+              <td colspan="6" class="empty">暂无客户记录</td>
             </tr>
             <tr v-for="customer in items" :key="customer.id">
               <td class="name">
@@ -72,6 +73,19 @@
               <td>{{ customer.country || '—' }}</td>
               <td>
                 <span :class="['badge', `badge--${(customer.grade || 'unknown').toLowerCase()}`]">{{ customer.grade }}</span>
+              </td>
+              <td class="followup">
+                <button
+                  type="button"
+                  class="followup-toggle"
+                  :class="customer.followup_sent ? 'is-paused' : 'is-active'"
+                  :disabled="isFollowupStatusLoading(customer.id)"
+                  @click="toggleFollowupStatus(customer)"
+                >
+                  <span class="followup-toggle__status">
+                    {{ customer.followup_sent ? '已发送一次' : '等待发送' }}
+                  </span>
+                </button>
               </td>
               <td>{{ formatDisplayDate(customer.last_followup_at) }}</td>
               <td class="actions">
@@ -113,7 +127,17 @@ import CustomerEditModal from '../components/customers/CustomerEditModal.vue'
 import { useCustomersStore } from '../stores/customers'
 
 const customersStore = useCustomersStore()
-const { items, loading, detail, detailLoading, filters, total, page, pageSize } = storeToRefs(customersStore)
+const {
+  items,
+  loading,
+  detail,
+  detailLoading,
+  filters,
+  total,
+  page,
+  pageSize,
+  followupUpdating,
+} = storeToRefs(customersStore)
 
 const selectedFilters = reactive({
   grade: filters.value.grade,
@@ -208,6 +232,7 @@ const openEditor = async (customerId) => {
 const rerunLoading = reactive({})
 
 const isRerunLoading = (customerId) => Boolean(customerId && rerunLoading[customerId])
+const isFollowupStatusLoading = (customerId) => Boolean(customerId && followupUpdating.value?.[customerId])
 
 const handleRerun = async (customerId) => {
   if (!customerId || isRerunLoading(customerId)) return
@@ -217,6 +242,11 @@ const handleRerun = async (customerId) => {
   } finally {
     rerunLoading[customerId] = false
   }
+}
+
+const toggleFollowupStatus = async (customer) => {
+  if (!customer || !customer.id || isFollowupStatusLoading(customer.id)) return
+  await customersStore.updateFollowupStatus(customer.id, !customer.followup_sent)
 }
 
 const closeEditor = () => {
@@ -396,6 +426,56 @@ onUnmounted(() => {
 .badge--unknown {
   background: rgba(148, 163, 184, 0.12);
   color: #64748b;
+}
+
+.badge--success {
+  background: rgba(16, 185, 129, 0.18);
+  color: #047857;
+}
+
+.badge--muted {
+  background: rgba(148, 163, 184, 0.2);
+  color: #334155;
+}
+
+.customers__table td.followup {
+  width: 200px;
+}
+
+.followup-toggle {
+  width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  padding: 10px 14px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.1s ease;
+}
+
+.followup-toggle.is-active {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.followup-toggle.is-paused {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.followup-toggle:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.followup-toggle__status {
+  font-weight: 600;
+  font-size: 13px;
+  color: #0f172a;
 }
 
 .customers__table td.actions {

@@ -115,6 +115,27 @@ func (h *Handlers) DeleteCustomer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Response{OK: true})
 }
 
+// UpdateFollowupStatus toggles whether automated followups can continue sending emails.
+func (h *Handlers) UpdateFollowupStatus(w http.ResponseWriter, r *http.Request) {
+	customerID, err := parseID(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	var payload struct {
+		FollowupSent bool `json:"followup_sent"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	if err := h.Store.UpdateFollowupSent(r.Context(), customerID, payload.FollowupSent); err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: map[string]bool{"followup_sent": payload.FollowupSent}})
+}
+
 // SaveSettings persists the settings payload.
 func (h *Handlers) SaveSettings(w http.ResponseWriter, r *http.Request) {
 	if err := h.Store.SaveSettings(r.Context(), r.Body); err != nil {

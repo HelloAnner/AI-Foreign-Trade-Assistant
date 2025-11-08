@@ -29,6 +29,7 @@ func Router(h *Handlers) http.Handler {
 
 		api.Get("/customers", h.ListCustomers)
 		api.Get("/customers/{id}", h.GetCustomerDetail)
+		api.Put("/customers/{id}/followup-flag", h.UpdateFollowupStatus)
 		api.Delete("/customers/{id}", h.DeleteCustomer)
 
 		api.Post("/companies/resolve", h.ResolveCompany)

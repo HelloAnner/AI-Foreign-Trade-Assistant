@@ -4,6 +4,7 @@ import {
   getCustomerDetail,
   deleteCustomer as deleteCustomerRequest,
   triggerAutomation,
+  updateFollowupStatus as updateFollowupStatusRequest,
 } from '../api/customers'
 import { useUiStore } from './ui'
 
@@ -23,6 +24,7 @@ export const useCustomersStore = defineStore('customers', {
     },
     detailLoading: false,
     detail: null,
+    followupUpdating: {},
   }),
   actions: {
     async fetchList(extra = {}, options = {}) {
@@ -165,6 +167,38 @@ export const useCustomersStore = defineStore('customers', {
         const status = error?.response?.status
         ui.pushToast(error.message, status === 409 ? 'info' : 'error')
         return null
+      }
+    },
+    async updateFollowupStatus(customerId, followupSent) {
+      const ui = useUiStore()
+      if (!customerId) {
+        ui.pushToast('无效的客户 ID', 'error')
+        return null
+      }
+      this.followupUpdating = { ...this.followupUpdating, [customerId]: true }
+      try {
+        const payload = await updateFollowupStatusRequest(customerId, followupSent)
+        if (!payload.ok) {
+          ui.pushToast(payload.error || '更新跟进状态失败', 'error')
+          return null
+        }
+        const flag = !!payload.data?.followup_sent
+        this.items = this.items.map((item) =>
+          item.id === customerId ? { ...item, followup_sent: flag } : item
+        )
+        if (this.detail && this.detail.id === customerId) {
+          this.detail = { ...this.detail, followup_sent: flag }
+        }
+        ui.pushToast(flag ? '已标记为“仅发送一次”' : '已允许继续发送', 'success')
+        return flag
+      } catch (error) {
+        console.error('Failed to update followup status', error)
+        ui.pushToast(error.message, 'error')
+        return null
+      } finally {
+        const nextState = { ...this.followupUpdating }
+        delete nextState[customerId]
+        this.followupUpdating = nextState
       }
     },
   },

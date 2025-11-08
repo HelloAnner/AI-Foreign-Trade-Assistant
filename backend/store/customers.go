@@ -61,10 +61,11 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) (*
             COALESCE(NULLIF(upper(c.grade), ''), 'UNKNOWN') AS grade,
             c.created_at,
             c.updated_at,
-            MAX(f.updated_at) AS last_followup_at,
+            c.followup_sent,
+            MAX(e.sent_at) AS last_followup_at,
             MIN(CASE WHEN st.status = 'scheduled' THEN st.due_at END) AS next_followup_at
         FROM customers c
-        LEFT JOIN followups f ON f.customer_id = c.id
+        LEFT JOIN emails e ON e.customer_id = c.id AND e.status = 'sent'
         LEFT JOIN scheduled_tasks st ON st.customer_id = c.id
     `
 
@@ -103,13 +104,14 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) (*
 
 	for rows.Next() {
 		var (
-			summary domain.CustomerSummary
-			grade   sql.NullString
-			created sql.NullString
-			updated sql.NullString
-			last    sql.NullString
-			next    sql.NullString
-			website sql.NullString
+			summary      domain.CustomerSummary
+			grade        sql.NullString
+			created      sql.NullString
+			updated      sql.NullString
+			followupSent sql.NullInt64
+			last         sql.NullString
+			next         sql.NullString
+			website      sql.NullString
 		)
 		if err := rows.Scan(
 			&summary.ID,
@@ -119,6 +121,7 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) (*
 			&grade,
 			&created,
 			&updated,
+			&followupSent,
 			&last,
 			&next,
 		); err != nil {
@@ -147,6 +150,9 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) (*
 		}
 		if next.Valid {
 			summary.NextFollowupAt = strings.TrimSpace(next.String)
+		}
+		if followupSent.Valid {
+			summary.FollowupSent = followupSent.Int64 == 1
 		}
 
 		summary.Status = deriveCustomerStatus(summary, now)
@@ -441,17 +447,18 @@ func (s *Store) GetCustomerDetail(ctx context.Context, customerID int64) (*domai
 	}
 
 	detail := &domain.CustomerDetail{
-		ID:          customer.ID,
-		Name:        customer.Name,
-		Website:     customer.Website,
-		Country:     customer.Country,
-		Summary:     customer.Summary,
-		Grade:       strings.ToUpper(strings.TrimSpace(customer.Grade)),
-		GradeReason: customer.GradeReason,
-		Contacts:    contacts,
-		SourceJSON:  customer.SourceJSON,
-		CreatedAt:   customer.CreatedAt,
-		UpdatedAt:   customer.UpdatedAt,
+		ID:           customer.ID,
+		Name:         customer.Name,
+		Website:      customer.Website,
+		Country:      customer.Country,
+		Summary:      customer.Summary,
+		Grade:        strings.ToUpper(strings.TrimSpace(customer.Grade)),
+		GradeReason:  customer.GradeReason,
+		FollowupSent: customer.FollowupSent,
+		Contacts:     contacts,
+		SourceJSON:   customer.SourceJSON,
+		CreatedAt:    customer.CreatedAt,
+		UpdatedAt:    customer.UpdatedAt,
 	}
 
 	if detail.Grade == "" {
@@ -531,13 +538,14 @@ func (s *Store) FindCustomerByQuery(ctx context.Context, query string) (*domain.
 
 	scan := func(condition string, args ...any) error {
 		row := s.DB.QueryRowContext(ctx, `
-			SELECT id, name, website, country, grade, grade_reason, summary, source_json, created_at, updated_at
+			SELECT id, name, website, country, grade, grade_reason, summary, followup_sent, source_json, created_at, updated_at
 			FROM customers
 			WHERE `+condition+`
 			ORDER BY updated_at DESC
 			LIMIT 1
 		`, args...)
-		return row.Scan(
+		var sent sql.NullInt64
+		err := row.Scan(
 			&customer.ID,
 			&customer.Name,
 			&customer.Website,
@@ -545,10 +553,15 @@ func (s *Store) FindCustomerByQuery(ctx context.Context, query string) (*domain.
 			&customer.Grade,
 			&customer.GradeReason,
 			&customer.Summary,
+			&sent,
 			&source,
 			&customer.CreatedAt,
 			&customer.UpdatedAt,
 		)
+		if err == nil && sent.Valid {
+			customer.FollowupSent = sent.Int64 == 1
+		}
+		return err
 	}
 
 	var err error
@@ -659,18 +672,18 @@ func (s *Store) CreateCustomer(ctx context.Context, req *domain.CreateCompanyReq
 		return 0, fmt.Errorf("客户名称不能为空")
 	}
 
-    if exists, err := s.customerExistsByNameOrWebsite(ctx, req.Name, req.Website); err != nil {
-        return 0, err
-    } else if exists {
-        // Idempotent create: return existing customer's ID instead of error.
-        if c, _, ferr := s.FindCustomerByQuery(ctx, req.Name); ferr == nil && c != nil && c.ID > 0 {
-            return c.ID, nil
-        }
-        if c, _, ferr := s.FindCustomerByQuery(ctx, req.Website); ferr == nil && c != nil && c.ID > 0 {
-            return c.ID, nil
-        }
-        return 0, fmt.Errorf("客户已存在")
-    }
+	if exists, err := s.customerExistsByNameOrWebsite(ctx, req.Name, req.Website); err != nil {
+		return 0, err
+	} else if exists {
+		// Idempotent create: return existing customer's ID instead of error.
+		if c, _, ferr := s.FindCustomerByQuery(ctx, req.Name); ferr == nil && c != nil && c.ID > 0 {
+			return c.ID, nil
+		}
+		if c, _, ferr := s.FindCustomerByQuery(ctx, req.Website); ferr == nil && c != nil && c.ID > 0 {
+			return c.ID, nil
+		}
+		return 0, fmt.Errorf("客户已存在")
+	}
 
 	source := req.SourceJSON
 	if len(source) == 0 {
@@ -779,10 +792,11 @@ func (s *Store) GetCustomer(ctx context.Context, id int64) (*domain.Customer, er
 	if s == nil || s.DB == nil {
 		return nil, fmt.Errorf("store not initialized")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT id, name, website, country, grade, grade_reason, summary, source_json, created_at, updated_at FROM customers WHERE id = ?`, id)
+	row := s.DB.QueryRowContext(ctx, `SELECT id, name, website, country, grade, grade_reason, summary, followup_sent, source_json, created_at, updated_at FROM customers WHERE id = ?`, id)
 	var (
 		customer domain.Customer
 		source   sql.NullString
+		sent     sql.NullInt64
 	)
 	if err := row.Scan(
 		&customer.ID,
@@ -792,6 +806,7 @@ func (s *Store) GetCustomer(ctx context.Context, id int64) (*domain.Customer, er
 		&customer.Grade,
 		&customer.GradeReason,
 		&customer.Summary,
+		&sent,
 		&source,
 		&customer.CreatedAt,
 		&customer.UpdatedAt,
@@ -803,6 +818,9 @@ func (s *Store) GetCustomer(ctx context.Context, id int64) (*domain.Customer, er
 	}
 	if source.Valid {
 		customer.SourceJSON = json.RawMessage(source.String)
+	}
+	if sent.Valid {
+		customer.FollowupSent = sent.Int64 == 1
 	}
 	return &customer, nil
 }
@@ -849,6 +867,34 @@ func (s *Store) UpdateCustomerGrade(ctx context.Context, id int64, grade, reason
 	res, err := s.DB.ExecContext(ctx, `UPDATE customers SET grade = ?, grade_reason = ?, updated_at = ? WHERE id = ?`, grade, reason, now, id)
 	if err != nil {
 		return fmt.Errorf("更新客户评级失败: %w", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return fmt.Errorf("客户不存在或未更新")
+	}
+	return nil
+}
+
+// UpdateFollowupSent toggles the followup sent flag for a customer.
+func (s *Store) UpdateFollowupSent(ctx context.Context, customerID int64, sent bool) error {
+	if s == nil || s.DB == nil {
+		return fmt.Errorf("store not initialized")
+	}
+	if customerID <= 0 {
+		return fmt.Errorf("invalid customer id")
+	}
+	value := 0
+	if sent {
+		value = 1
+	}
+	res, err := s.DB.ExecContext(ctx,
+		`UPDATE customers SET followup_sent = ?, updated_at = ? WHERE id = ?`,
+		value,
+		Now(),
+		customerID,
+	)
+	if err != nil {
+		return fmt.Errorf("更新邮件发送标记失败: %w", err)
 	}
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
