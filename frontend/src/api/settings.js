@@ -15,8 +15,9 @@ export const testLLM = async () => {
   return data
 }
 
-export const testSMTP = async () => {
-  const { data } = await http.post('/settings/test-smtp')
+export const testSMTP = async (payload) => {
+  const body = payload ?? {}
+  const { data } = await http.post('/settings/test-smtp', body)
   return data
 }
 

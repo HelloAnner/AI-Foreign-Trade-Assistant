@@ -30,19 +30,19 @@ func NewAutomationService(st *store.Store, grader GradingService, analyst Analys
 
 // Enqueue registers a new automation workflow for the given customer.
 func (s *AutomationServiceImpl) Enqueue(ctx context.Context, customerID int64) (*domain.AutomationJob, error) {
-    existing, err := s.store.GetActiveAutomationJob(ctx, customerID)
-    if err != nil {
-        return existing, err
-    }
-    if existing != nil {
-        return existing, ErrAutomationJobExists
-    }
-    job, err := s.store.CreateAutomationJob(ctx, customerID)
-    if err == nil && job != nil {
-        // 轻量“唤醒”，确保队列不会因为 runner 间隔而显得中断
-        go func() { _, _ = s.ProcessNext(context.Background()) }()
-    }
-    return job, err
+	existing, err := s.store.GetActiveAutomationJob(ctx, customerID)
+	if err != nil {
+		return existing, err
+	}
+	if existing != nil {
+		return existing, ErrAutomationJobExists
+	}
+	job, err := s.store.CreateAutomationJob(ctx, customerID)
+	if err == nil && job != nil {
+		// 轻量“唤醒”，确保队列不会因为 runner 间隔而显得中断
+		go func() { _, _ = s.ProcessNext(context.Background()) }()
+	}
+	return job, err
 }
 
 // ProcessNext claims and executes the next pending automation job.
@@ -138,11 +138,11 @@ func (s *AutomationServiceImpl) runJob(ctx context.Context, job *domain.Automati
 	}
 	log.Printf("[automation] job=%d email_draft id=%d", job.ID, emailID)
 
-    // Stage: follow-up bookkeeping & scheduling
-    if err := s.store.UpdateAutomationJobStage(ctx, job.ID, domain.AutomationStageFollowup); err != nil {
-        return err
-    }
-    log.Printf("[automation] job=%d stage=%s", job.ID, domain.AutomationStageFollowup)
+	// Stage: follow-up bookkeeping & scheduling
+	if err := s.store.UpdateAutomationJobStage(ctx, job.ID, domain.AutomationStageFollowup); err != nil {
+		return err
+	}
+	log.Printf("[automation] job=%d stage=%s", job.ID, domain.AutomationStageFollowup)
 
 	followupID, ferr := s.store.GetLatestFollowupID(ctx, job.CustomerID)
 	if ferr != nil {
@@ -156,38 +156,38 @@ func (s *AutomationServiceImpl) runJob(ctx context.Context, job *domain.Automati
 		log.Printf("[automation] job=%d followup created", job.ID)
 	}
 
-    scheduled, serr := s.store.GetLatestScheduledTask(ctx, job.CustomerID)
-    if serr != nil {
-        log.Printf("automation: 获取自动跟进任务失败 customer=%d: %v", job.CustomerID, serr)
-    }
-    if scheduled == nil {
-        delay := settings.AutomationFollowupDays
-        if delay <= 0 {
-            delay = 3
-        }
-        _, err := s.scheduler.Schedule(ctx, &domain.ScheduleRequest{
-            CustomerID:     job.CustomerID,
-            ContextEmailID: emailID,
-            Mode:           "simple",
-            DelayValue:     delay,
-            DelayUnit:      "days",
-        })
-        if err != nil {
-            // If there is no recipient email (and admin email not configured), gracefully stop automation.
-            if errors.Is(err, ErrNoRecipientEmails) {
-                msg := "未找到联系人邮箱且未配置管理员邮箱，已跳过自动跟进；请在客户管理中补充邮箱或在设置中填写管理员邮箱后再设置"
-                if e := s.store.MarkAutomationJobStopped(ctx, job.ID, msg); e != nil {
-                    return e
-                }
-                log.Printf("[automation] job=%d stopped: %s", job.ID, msg)
-                // Clean up the job record as in other stop/completed paths.
-                return s.store.DeleteAutomationJob(ctx, job.ID)
-            }
-            _ = s.store.MarkAutomationJobFailed(ctx, job.ID, domain.AutomationStageFollowup, err.Error())
-            return err
-        }
-        log.Printf("[automation] job=%d followup scheduled delay_days=%d", job.ID, delay)
-    }
+	scheduled, serr := s.store.GetLatestScheduledTask(ctx, job.CustomerID)
+	if serr != nil {
+		log.Printf("automation: 获取自动跟进任务失败 customer=%d: %v", job.CustomerID, serr)
+	}
+	if scheduled == nil {
+		delay := settings.AutomationFollowupDays
+		if delay <= 0 {
+			delay = 3
+		}
+		_, err := s.scheduler.Schedule(ctx, &domain.ScheduleRequest{
+			CustomerID:     job.CustomerID,
+			ContextEmailID: emailID,
+			Mode:           "simple",
+			DelayValue:     delay,
+			DelayUnit:      "days",
+		})
+		if err != nil {
+			// If there is no admin email configured, gracefully stop automation.
+			if errors.Is(err, ErrNoAdminEmail) {
+				msg := "未配置管理员邮箱，已跳过自动跟进；请在设置中填写管理员邮箱后再试"
+				if e := s.store.MarkAutomationJobStopped(ctx, job.ID, msg); e != nil {
+					return e
+				}
+				log.Printf("[automation] job=%d stopped: %s", job.ID, msg)
+				// Clean up the job record as in other stop/completed paths.
+				return s.store.DeleteAutomationJob(ctx, job.ID)
+			}
+			_ = s.store.MarkAutomationJobFailed(ctx, job.ID, domain.AutomationStageFollowup, err.Error())
+			return err
+		}
+		log.Printf("[automation] job=%d followup scheduled delay_days=%d", job.ID, delay)
+	}
 
 	if err := s.store.MarkAutomationJobCompleted(ctx, job.ID, domain.AutomationStageCompleted); err != nil {
 		return err

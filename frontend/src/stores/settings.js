@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { fetchSettings, saveSettings, testLLM, testSMTP, testSearch } from '../api/settings'
+import { fetchSettings, saveSettings, testLLM, testSMTP as testSMTPApi, testSearch } from '../api/settings'
 import { useUiStore } from './ui'
 
 const defaultState = () => ({
@@ -95,10 +95,10 @@ export const useSettingsStore = defineStore('settings', {
         ui.pushToast(error.message, 'error')
       }
     },
-    async testSMTP() {
+    async testSMTP(overrides) {
       const ui = useUiStore()
       try {
-        const payload = await testSMTP()
+        const payload = await testSMTPApi(overrides)
         if (payload.ok) {
           ui.pushToast('测试邮件已发送，请检查邮箱', 'success')
         } else {

@@ -1,22 +1,23 @@
 package api
 
 import (
-    "context"
-    "database/sql"
-    "encoding/json"
-    "errors"
-    "fmt"
-    "log"
-    "net/http"
-    "strconv"
-    "strings"
-    "time"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
-    "github.com/anner/ai-foreign-trade-assistant/backend/domain"
-    "github.com/anner/ai-foreign-trade-assistant/backend/services"
-    "github.com/anner/ai-foreign-trade-assistant/backend/store"
+	"github.com/anner/ai-foreign-trade-assistant/backend/domain"
+	"github.com/anner/ai-foreign-trade-assistant/backend/services"
+	"github.com/anner/ai-foreign-trade-assistant/backend/store"
 )
 
 // Response defines API envelope.
@@ -28,8 +29,8 @@ type Response struct {
 
 // Handlers groups dependencies for HTTP handlers.
 type Handlers struct {
-    Store         *store.Store
-    ServiceBundle *services.Bundle
+	Store         *store.Store
+	ServiceBundle *services.Bundle
 }
 
 // Health exposes a simple liveness probe.
@@ -140,7 +141,19 @@ func (h *Handlers) TestLLM(w http.ResponseWriter, r *http.Request) {
 
 // TestSMTP sends a test email using the configured SMTP credentials.
 func (h *Handlers) TestSMTP(w http.ResponseWriter, r *http.Request) {
-	if err := h.ServiceBundle.Mailer.SendTest(r.Context()); err != nil {
+	var overrides *store.Settings
+	if r.Body != nil {
+		var payload store.Settings
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			if !errors.Is(err, io.EOF) {
+				writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+				return
+			}
+		} else {
+			overrides = &payload
+		}
+	}
+	if err := h.ServiceBundle.Mailer.SendTest(r.Context(), overrides); err != nil {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
 		return
 	}
@@ -158,28 +171,28 @@ func (h *Handlers) TestSearch(w http.ResponseWriter, r *http.Request) {
 
 // EnqueueTodo accepts a raw query and persists it for background processing.
 func (h *Handlers) EnqueueTodo(w http.ResponseWriter, r *http.Request) {
-    var payload struct {
-        Query string `json:"query"`
-    }
-    if err := decodeJSON(r, &payload); err != nil {
-        writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
-        return
-    }
-    q := strings.TrimSpace(payload.Query)
-    if q == "" {
-        writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: "请输入客户公司名称或官网地址"})
-        return
-    }
-    if h.ServiceBundle == nil || h.ServiceBundle.Todo == nil {
-        writeJSON(w, http.StatusServiceUnavailable, Response{OK: false, Error: "待办服务未启用"})
-        return
-    }
-    task, err := h.ServiceBundle.Todo.Enqueue(r.Context(), q)
-    if err != nil {
-        writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
-        return
-    }
-    writeJSON(w, http.StatusOK, Response{OK: true, Data: task})
+	var payload struct {
+		Query string `json:"query"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	q := strings.TrimSpace(payload.Query)
+	if q == "" {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: "请输入客户公司名称或官网地址"})
+		return
+	}
+	if h.ServiceBundle == nil || h.ServiceBundle.Todo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, Response{OK: false, Error: "待办服务未启用"})
+		return
+	}
+	task, err := h.ServiceBundle.Todo.Enqueue(r.Context(), q)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: task})
 }
 
 // ResolveCompany triggers the multi-source enrichment pipeline.
@@ -272,82 +285,82 @@ func (h *Handlers) ResolveCompany(w http.ResponseWriter, r *http.Request) {
 
 	req.Query = query
 	log.Printf("[flow] resolve new query=%s entering enrichment", query)
-    result, err := h.ServiceBundle.Enricher.ResolveCompany(r.Context(), &req)
-    if err != nil {
-        writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
-        return
-    }
-    trimmed := strings.TrimSpace(req.Query)
-    if result != nil && result.Name == "" && trimmed != "" {
-        result.Name = trimmed
-    }
-    // 在自动化开启时，直接在服务端保存解析结果，确保连续输入也能可靠入库。
-    if h.ServiceBundle != nil && h.Store != nil {
-        // 使用独立的后台上下文，避免 HTTP 请求上下文被取消导致保存失败。
-        ctxSave, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-        defer cancel()
-        settings, sErr := h.Store.GetSettings(ctxSave)
-        if sErr != nil {
-            log.Printf("fetch settings for resolve auto-save failed: %v", sErr)
-        } else if settings.AutomationEnabled {
-            existsCustomer, _, ferr := h.Store.FindCustomerByQuery(ctxSave, trimmed)
-            if ferr != nil {
-                log.Printf("find customer before auto-save failed: %v", ferr)
-            }
-            if existsCustomer == nil {
-                var src json.RawMessage
-                if b, mErr := json.Marshal(result); mErr == nil {
-                    src = b
-                }
-                saveReq := &domain.CreateCompanyRequest{
-                    Name:       strings.TrimSpace(result.Name),
-                    Website:    strings.TrimSpace(result.Website),
-                    Country:    strings.TrimSpace(result.Country),
-                    Summary:    strings.TrimSpace(result.Summary),
-                    Contacts:   result.Contacts,
-                    SourceJSON: src,
-                }
-                if strings.TrimSpace(saveReq.Name) == "" {
-                    saveReq.Name = trimmed
-                }
-                if id, cErr := h.Store.CreateCustomer(ctxSave, saveReq); cErr != nil {
-                    log.Printf("[customers] auto-create failed name=%s website=%s: %v", strings.TrimSpace(saveReq.Name), strings.TrimSpace(saveReq.Website), cErr)
-                } else if id > 0 {
-                    log.Printf("[customers] auto-created (resolve) id=%d name=%s", id, strings.TrimSpace(saveReq.Name))
-                    result.CustomerID = id
-                    if h.ServiceBundle.Automation != nil && settings.AutomationEnabled {
-                        if job, qErr := h.ServiceBundle.Automation.Enqueue(ctxSave, id); qErr != nil {
-                            if !errors.Is(qErr, services.ErrAutomationJobExists) {
-                                log.Printf("enqueue automation job (resolve) failed (customer %d): %v", id, qErr)
-                            } else if job != nil {
-                                result.AutomationJob = job
-                            }
-                        } else if job != nil {
-                            result.AutomationJob = job
-                        }
-                    }
-                }
-            } else {
-                result.CustomerID = existsCustomer.ID
-            }
-        }
-    }
-    writeJSON(w, http.StatusOK, Response{OK: true, Data: result})
+	result, err := h.ServiceBundle.Enricher.ResolveCompany(r.Context(), &req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	trimmed := strings.TrimSpace(req.Query)
+	if result != nil && result.Name == "" && trimmed != "" {
+		result.Name = trimmed
+	}
+	// 在自动化开启时，直接在服务端保存解析结果，确保连续输入也能可靠入库。
+	if h.ServiceBundle != nil && h.Store != nil {
+		// 使用独立的后台上下文，避免 HTTP 请求上下文被取消导致保存失败。
+		ctxSave, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		settings, sErr := h.Store.GetSettings(ctxSave)
+		if sErr != nil {
+			log.Printf("fetch settings for resolve auto-save failed: %v", sErr)
+		} else if settings.AutomationEnabled {
+			existsCustomer, _, ferr := h.Store.FindCustomerByQuery(ctxSave, trimmed)
+			if ferr != nil {
+				log.Printf("find customer before auto-save failed: %v", ferr)
+			}
+			if existsCustomer == nil {
+				var src json.RawMessage
+				if b, mErr := json.Marshal(result); mErr == nil {
+					src = b
+				}
+				saveReq := &domain.CreateCompanyRequest{
+					Name:       strings.TrimSpace(result.Name),
+					Website:    strings.TrimSpace(result.Website),
+					Country:    strings.TrimSpace(result.Country),
+					Summary:    strings.TrimSpace(result.Summary),
+					Contacts:   result.Contacts,
+					SourceJSON: src,
+				}
+				if strings.TrimSpace(saveReq.Name) == "" {
+					saveReq.Name = trimmed
+				}
+				if id, cErr := h.Store.CreateCustomer(ctxSave, saveReq); cErr != nil {
+					log.Printf("[customers] auto-create failed name=%s website=%s: %v", strings.TrimSpace(saveReq.Name), strings.TrimSpace(saveReq.Website), cErr)
+				} else if id > 0 {
+					log.Printf("[customers] auto-created (resolve) id=%d name=%s", id, strings.TrimSpace(saveReq.Name))
+					result.CustomerID = id
+					if h.ServiceBundle.Automation != nil && settings.AutomationEnabled {
+						if job, qErr := h.ServiceBundle.Automation.Enqueue(ctxSave, id); qErr != nil {
+							if !errors.Is(qErr, services.ErrAutomationJobExists) {
+								log.Printf("enqueue automation job (resolve) failed (customer %d): %v", id, qErr)
+							} else if job != nil {
+								result.AutomationJob = job
+							}
+						} else if job != nil {
+							result.AutomationJob = job
+						}
+					}
+				}
+			} else {
+				result.CustomerID = existsCustomer.ID
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: result})
 }
 
 // CreateCompany saves Step 1 curated information.
 func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
-    var req domain.CreateCompanyRequest
-    if err := decodeJSON(r, &req); err != nil {
-        writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
-        return
-    }
-    id, err := h.Store.CreateCustomer(r.Context(), &req)
-    if err != nil {
-        log.Printf("[customers] create failed name=%s website=%s: %v", strings.TrimSpace(req.Name), strings.TrimSpace(req.Website), err)
-        writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
-        return
-    }
+	var req domain.CreateCompanyRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	id, err := h.Store.CreateCustomer(r.Context(), &req)
+	if err != nil {
+		log.Printf("[customers] create failed name=%s website=%s: %v", strings.TrimSpace(req.Name), strings.TrimSpace(req.Website), err)
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
 
 	payload := map[string]interface{}{"customer_id": id}
 
@@ -420,23 +433,23 @@ func (h *Handlers) EnqueueAutomation(w http.ResponseWriter, r *http.Request) {
 
 // UpdateCompany updates Step 1 information for an existing customer.
 func (h *Handlers) UpdateCompany(w http.ResponseWriter, r *http.Request) {
-    customerID, err := parseID(chi.URLParam(r, "id"))
-    if err != nil {
-        writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
-        return
-    }
-    var req domain.CreateCompanyRequest
-    if err := decodeJSON(r, &req); err != nil {
-        writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
-        return
-    }
-    if err := h.Store.UpdateCustomer(r.Context(), customerID, &req); err != nil {
-        log.Printf("[customers] update failed id=%d name=%s website=%s: %v", customerID, strings.TrimSpace(req.Name), strings.TrimSpace(req.Website), err)
-        writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
-        return
-    }
-    log.Printf("[customers] updated customer id=%d name=%s", customerID, strings.TrimSpace(req.Name))
-    writeJSON(w, http.StatusOK, Response{OK: true, Data: map[string]int64{"customer_id": customerID}})
+	customerID, err := parseID(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	var req domain.CreateCompanyRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	if err := h.Store.UpdateCustomer(r.Context(), customerID, &req); err != nil {
+		log.Printf("[customers] update failed id=%d name=%s website=%s: %v", customerID, strings.TrimSpace(req.Name), strings.TrimSpace(req.Website), err)
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	log.Printf("[customers] updated customer id=%d name=%s", customerID, strings.TrimSpace(req.Name))
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: map[string]int64{"customer_id": customerID}})
 }
 
 // ReplaceContacts stores user-edited contacts for a customer.

@@ -22,15 +22,15 @@ type Bundle struct {
 	Grader        GradingService
 	Analyst       AnalysisService
 	EmailComposer EmailComposerService
-    Scheduler     SchedulerService
-    Automation    AutomationService
-    Todo          TodoService
+	Scheduler     SchedulerService
+	Automation    AutomationService
+	Todo          TodoService
 }
 
 // Options describes dependencies shared across services.
 type Options struct {
-    Store      *store.Store
-    HTTPClient *http.Client
+	Store      *store.Store
+	HTTPClient *http.Client
 }
 
 // LLMService validates credentials and proxies prompt calls.
@@ -40,7 +40,7 @@ type LLMService interface {
 
 // MailService sends transactional emails.
 type MailService interface {
-	SendTest(ctx context.Context) error
+	SendTest(ctx context.Context, overrides *store.Settings) error
 	Send(ctx context.Context, to []string, subject, body string) (string, error)
 }
 
@@ -107,7 +107,7 @@ func (stubLLM) TestConnection(ctx context.Context) (map[string]string, error) {
 
 type stubMailer struct{}
 
-func (stubMailer) SendTest(ctx context.Context) error {
+func (stubMailer) SendTest(ctx context.Context, overrides *store.Settings) error {
 	return ErrNotImplemented
 }
 
@@ -196,10 +196,10 @@ func NewBundle(opts Options) *Bundle {
 	analyst := NewAnalysisService(opts.Store, llmClient)
 	emailComposer := NewEmailComposerService(opts.Store, llmClient)
 	scheduler := NewSchedulerService(opts.Store, emailComposer, mailer)
-    automation := NewAutomationService(opts.Store, grader, analyst, emailComposer, scheduler)
-    todo := NewTodoService(opts.Store, enricher, automation)
+	automation := NewAutomationService(opts.Store, grader, analyst, emailComposer, scheduler)
+	todo := NewTodoService(opts.Store, enricher, automation)
 
-    return &Bundle{
+	return &Bundle{
 		LLM:           llmClient,
 		Mailer:        mailer,
 		Search:        search,
@@ -207,8 +207,8 @@ func NewBundle(opts Options) *Bundle {
 		Grader:        grader,
 		Analyst:       analyst,
 		EmailComposer: emailComposer,
-        Scheduler:     scheduler,
-        Automation:    automation,
-        Todo:          todo,
-    }
+		Scheduler:     scheduler,
+		Automation:    automation,
+		Todo:          todo,
+	}
 }

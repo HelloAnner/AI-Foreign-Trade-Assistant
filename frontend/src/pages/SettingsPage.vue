@@ -265,8 +265,8 @@ const handleReset = () => {
 }
 
 const handleTestSMTP = async () => {
-  if (!(await ensureSaved())) return
-  await settingsStore.testSMTP()
+  await ensureSaved()
+  await settingsStore.testSMTP({ ...local })
 }
 
 const handleTestSearch = async () => {
