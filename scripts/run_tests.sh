@@ -117,21 +117,23 @@ run_test() {
 
     # 设置 Playwright 环境变量
     PLAYWRIGHT_DIR="$(dirname "$0")/../bin/playwright"
-    if [ -d "$PLAYWRIGHT_DIR" ]; then
-        export PLAYWRIGHT_NODE_HOME="$PLAYWRIGHT_DIR/node"
-        export PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_DIR/browsers"
-        export PATH="$PLAYWRIGHT_DIR/node/bin:$PATH"
+
+    # 使用 is_playwright_ready 函数检测
+    if ! is_playwright_ready "$PLAYWRIGHT_DIR"; then
         echo ""
-        echo -e "${GREEN}✓ Playwright 环境已配置${NC}"
-        echo "  节点路径: $PLAYWRIGHT_NODE_HOME"
-        echo "  浏览器路径: $PLAYWRIGHT_BROWSERS_PATH"
-        echo ""
-    else
-        echo ""
-        echo -e "${RED}❌ Playwright 环境未找到${NC}"
+        echo -e "${RED}❌ Playwright 环境不完整或未找到${NC}"
         echo "  请先运行: bash scripts/setup-playwright.sh"
         exit 1
     fi
+
+    export PLAYWRIGHT_NODE_HOME="$PLAYWRIGHT_DIR/node"
+    export PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_DIR/browsers"
+    export PATH="$PLAYWRIGHT_DIR/node/bin:$PATH"
+    echo ""
+    echo -e "${GREEN}✓ Playwright 环境已配置${NC}"
+    echo "  节点路径: $PLAYWRIGHT_NODE_HOME"
+    echo "  浏览器路径: $PLAYWRIGHT_BROWSERS_PATH"
+    echo ""
 
     # 使用 -count=1 禁用测试缓存，确保每次都真实运行
     local test_flags="-v -count=1"
@@ -240,21 +242,31 @@ echo ""
 
 # 检查 Playwright 环境
 PLAYWRIGHT_DIR="$ROOT_DIR/bin/playwright"
-if [ ! -d "$PLAYWRIGHT_DIR" ]; then
-    echo -e "${YELLOW}⚠ Playwright 环境未找到${NC}"
-    echo -n "是否自动下载 Playwright 到 bin/ 目录? [y/N]: "
-    read -r confirm
-    if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        echo -e "${YELLOW}正在下载 Playwright...${NC}"
-        bash "$ROOT_DIR/scripts/setup-playwright.sh" "$PLAYWRIGHT_DIR"
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓ Playwright 下载完成${NC}"
-        else
-            echo -e "${RED}❌ Playwright 下载失败${NC}"
-            exit 1
-        fi
+
+# 检查 Playwright 是否已安装且完整
+is_playwright_ready() {
+    local dir="$1"
+    if [ -d "$dir/node/bin" ] && [ -f "$dir/node/bin/node" ] &&
+       [ -f "$dir/package.json" ] && [ -d "$dir/browsers" ]; then
+        return 0
     else
-        echo -e "${RED}请手动运行: bash scripts/setup-playwright.sh${NC}"
+        return 1
+    fi
+}
+
+if ! is_playwright_ready "$PLAYWRIGHT_DIR"; then
+    if [ -d "$PLAYWRIGHT_DIR" ]; then
+        echo -e "${YELLOW}⚠ Playwright 环境不完整或为空，删除后重新下载...${NC}"
+        rm -rf "$PLAYWRIGHT_DIR"
+    else
+        echo -e "${YELLOW}⚠ Playwright 环境未找到，开始自动下载...${NC}"
+    fi
+
+    bash "$ROOT_DIR/scripts/setup-playwright.sh" "$PLAYWRIGHT_DIR"
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✓ Playwright 下载完成${NC}"
+    else
+        echo -e "${RED}❌ Playwright 下载失败${NC}"
         exit 1
     fi
 else

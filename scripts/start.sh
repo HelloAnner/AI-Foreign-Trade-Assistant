@@ -10,12 +10,32 @@ PLAYWRIGHT_DIR="$BIN_DIR/playwright"
 
 echo "[0/5] 检查 Playwright 环境..."
 
-# 检查 Playwright 是否已安装
-if [ ! -d "$PLAYWRIGHT_DIR" ]; then
-    echo "⚠ Playwright 环境未找到，开始下载..."
+# 检查 Playwright 是否已安装且完整
+is_playwright_ready() {
+    local dir="$1"
+    # 检查关键文件和目录是否存在
+    if [ -d "$dir/node/bin" ] && [ -f "$dir/node/bin/node" ] &&
+       [ -f "$dir/package.json" ] && [ -d "$dir/browsers" ]; then
+        return 0  # 已就绪
+    else
+        return 1  # 不完整或不存在
+    fi
+}
+
+if ! is_playwright_ready "$PLAYWRIGHT_DIR"; then
+    if [ -d "$PLAYWRIGHT_DIR" ]; then
+        echo "⚠ Playwright 环境不完整，删除后重新下载..."
+        rm -rf "$PLAYWRIGHT_DIR"
+    else
+        echo "⚠ Playwright 环境未找到，开始自动下载..."
+    fi
     bash "$ROOT_DIR/scripts/setup-playwright.sh" "$PLAYWRIGHT_DIR"
+    if [ $? -ne 0 ]; then
+        echo "❌ Playwright 下载失败"
+        exit 1
+    fi
 else
-    echo "✓ Playwright 环境已存在"
+    echo "✓ Playwright 环境已存在且完整"
 fi
 
 echo ""
