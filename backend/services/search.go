@@ -2,16 +2,15 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-	"strconv"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/anner/ai-foreign-trade-assistant/backend/store"
+	"github.com/playwright-community/playwright-go"
 )
 
 const defaultSearchTimeout = 25 * time.Second
@@ -37,7 +36,7 @@ var defaultSearchPlan = []searchTaskSpec{
 	{
 		Stage: SearchStageBroad,
 		Label: "任务A：基础信息搜索",
-		Limit: 6,
+		Limit: 10, // 增加到10个结果
 		QueryBuilder: func(name string) string {
 			return strings.TrimSpace(name)
 		},
@@ -45,37 +44,37 @@ var defaultSearchPlan = []searchTaskSpec{
 	{
 		Stage: SearchStageWebsite,
 		Label: "任务B：官网及业务搜索",
-		Limit: 6,
+		Limit: 10, // 增加到10个结果
 		QueryBuilder: func(name string) string {
 			name = strings.TrimSpace(name)
 			if name == "" {
 				return ""
 			}
-			return fmt.Sprintf(`%s official website OR about us OR products`, name)
+			return fmt.Sprintf(`%s official website`, name)
 		},
 	},
 	{
 		Stage: SearchStageContacts,
 		Label: "任务C：关键联系人搜索",
-		Limit: 6,
+		Limit: 10, // 增加到10个结果
 		QueryBuilder: func(name string) string {
 			name = strings.TrimSpace(name)
 			if name == "" {
 				return ""
 			}
-			return fmt.Sprintf(`("owner" OR "founder" OR "CEO" OR "purchasing manager" OR "sourcing director") AND "%s"`, name)
+			return fmt.Sprintf(`%s CEO founder owner purchasing manager`, name)
 		},
 	},
 	{
 		Stage: SearchStageLinkedIn,
 		Label: "任务D：社交与职业背景搜索",
-		Limit: 6,
+		Limit: 10, // 增加到10个结果
 		QueryBuilder: func(name string) string {
 			name = strings.TrimSpace(name)
 			if name == "" {
 				return ""
 			}
-			return fmt.Sprintf(`site:linkedin.com "%s"`, name)
+			return fmt.Sprintf(`site:linkedin.com %s`, name)
 		},
 	},
 }
@@ -142,24 +141,19 @@ func (r *SearchPlanResult) Items(stage SearchStage) []SearchItem {
 	return res.Items
 }
 
-// SearchClient invokes third-party search engines.
+// SearchClient invokes Google search using Playwright.
 type SearchClient struct {
-	store      *store.Store
-	httpClient *http.Client
+	store *store.Store
 }
 
 // NewSearchClient constructs a search client.
-func NewSearchClient(st *store.Store, client *http.Client) *SearchClient {
-	if client == nil {
-		client = &http.Client{Timeout: defaultSearchTimeout}
-	}
+func NewSearchClient(st *store.Store, _ interface{}) *SearchClient {
 	return &SearchClient{
-		store:      st,
-		httpClient: client,
+		store: st,
 	}
 }
 
-// ExecutePlan runs the predefined parallel search plan.
+// ExecutePlan runs the predefined parallel search plan using Playwright.
 func (c *SearchClient) ExecutePlan(ctx context.Context, customerName string) (*SearchPlanResult, error) {
 	if c == nil || c.store == nil {
 		return nil, fmt.Errorf("search client not initialized")
@@ -169,17 +163,9 @@ func (c *SearchClient) ExecutePlan(ctx context.Context, customerName string) (*S
 		return nil, fmt.Errorf("搜索关键词不能为空")
 	}
 
-	settings, err := c.store.GetSettings(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load settings: %w", err)
-	}
-
-	provider, providerLabel := normalizeProvider(settings.SearchProvider)
-	apiKey := strings.TrimSpace(settings.SearchAPIKey)
-
 	result := &SearchPlanResult{
 		Customer:     customerName,
-		Provider:     providerLabel,
+		Provider:     "google",
 		StageResults: make(map[SearchStage]*SearchTaskResult),
 	}
 
@@ -195,11 +181,11 @@ func (c *SearchClient) ExecutePlan(ctx context.Context, customerName string) (*S
 		go func(spec searchTaskSpec, query string) {
 			defer wg.Done()
 			start := time.Now()
-			items, err := c.searchSingle(ctx, provider, apiKey, query, spec.Limit)
+			items, err := c.searchWithPlaywright(ctx, query, spec.Limit)
 			if err != nil {
 				log.Printf("[search] stage=%s query=\"%s\" error=%v", spec.Stage, truncateForLog(query, 80), err)
 			} else {
-				log.Printf("[search] stage=%s query=\"%s\" provider=%s results=%d", spec.Stage, truncateForLog(query, 80), providerLabel, len(items))
+				log.Printf("[search] stage=%s query=\"%s\" results=%d", spec.Stage, truncateForLog(query, 80), len(items))
 			}
 			mu.Lock()
 			result.StageResults[spec.Stage] = &SearchTaskResult{
@@ -233,36 +219,21 @@ func (c *SearchClient) ExecutePlan(ctx context.Context, customerName string) (*S
 	return result, nil
 }
 
-// Search executes a single ad-hoc query using the configured provider.
+// Search executes a single ad-hoc query using Playwright.
 func (c *SearchClient) Search(ctx context.Context, query string, limit int) ([]SearchItem, error) {
 	if c == nil || c.store == nil {
 		return nil, fmt.Errorf("search client not initialized")
 	}
 	if limit <= 0 {
-		limit = 5
+		limit = 10
 	}
-	settings, err := c.store.GetSettings(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load settings: %w", err)
-	}
-	provider, _ := normalizeProvider(settings.SearchProvider)
-	apiKey := strings.TrimSpace(settings.SearchAPIKey)
-	return c.searchSingle(ctx, provider, apiKey, query, limit)
+	return c.searchWithPlaywright(ctx, query, limit)
 }
 
-// TestSearch validates that the configured provider can return at least one result.
+// TestSearch validates that Playwright can return at least one result.
 func (c *SearchClient) TestSearch(ctx context.Context) error {
 	if c == nil || c.store == nil {
 		return fmt.Errorf("search client not initialized")
-	}
-	settings, err := c.store.GetSettings(ctx)
-	if err != nil {
-		return fmt.Errorf("读取配置失败: %w", err)
-	}
-
-	provider := strings.TrimSpace(settings.SearchProvider)
-	if provider == "" {
-		return fmt.Errorf("请先在设置中配置搜索提供商")
 	}
 
 	plan, err := c.ExecutePlan(ctx, "Apple Inc.")
@@ -270,199 +241,280 @@ func (c *SearchClient) TestSearch(ctx context.Context) error {
 		return err
 	}
 	if len(plan.combined) < 3 {
-		return fmt.Errorf("搜索结果不足 3 条，请检查搜索提供商或关键词")
+		return fmt.Errorf("搜索结果不足 3 条，请检查搜索配置或关键词")
 	}
 	return nil
 }
 
-// ------------------------------------------------------------------------
-// Provider adapters and helpers
-// ------------------------------------------------------------------------
-
-func (c *SearchClient) searchSingle(ctx context.Context, provider, apiKey, query string, limit int) ([]SearchItem, error) {
-	providerLabel := provider
-	if providerLabel == "" {
-		providerLabel = "direct"
-	}
-	log.Printf("[search] provider=%s query=\"%s\" limit=%d status=started", providerLabel, truncateForLog(query, 80), limit)
-
-	switch provider {
-	case "serpapi":
-		return c.searchSerpAPI(ctx, query, limit, apiKey)
-	case "bing":
-		return c.searchBing(ctx, query, limit, apiKey)
-	case "ddg":
-		return c.searchDuckDuckGo(ctx, query, limit)
-	case "":
-		return directMode(query), nil
-	default:
-		log.Printf("[search] provider=%s status=unsupported, fallback=direct", provider)
-		return directMode(query), nil
-	}
-}
-
-func (c *SearchClient) searchBing(ctx context.Context, query string, limit int, apiKey string) ([]SearchItem, error) {
-	if strings.TrimSpace(apiKey) == "" {
-		return nil, fmt.Errorf("Bing 搜索需要配置 API Key")
+// searchWithPlaywright performs a Google search using Playwright and returns top results.
+func (c *SearchClient) searchWithPlaywright(ctx context.Context, query string, limit int) ([]SearchItem, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("搜索查询不能为空")
 	}
 	if limit <= 0 {
-		limit = 5
+		limit = 10
 	}
-	endpoint := "https://api.bing.microsoft.com/v7.0/search"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+
+	log.Printf("[search] playwright query=\"%s\" limit=%d", truncateForLog(query, 80), limit)
+
+	// Run Playwright search
+	items, err := runPlaywrightSearch(ctx, query, limit)
 	if err != nil {
-		return nil, err
-	}
-	q := req.URL.Query()
-	q.Set("q", query)
-	q.Set("count", strconv.Itoa(limit))
-	req.URL.RawQuery = q.Encode()
-	req.Header.Set("Ocp-Apim-Subscription-Key", apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("Bing 搜索失败: %s", resp.Status)
+		return nil, fmt.Errorf("Playwright search failed: %w", err)
 	}
 
-	var payload struct {
-		WebPages struct {
-			Value []struct {
-				Name        string `json:"name"`
-				URL         string `json:"url"`
-				Snippet     string `json:"snippet"`
-				DisplayURL  string `json:"displayUrl"`
-				Description string `json:"description"`
-			} `json:"value"`
-		} `json:"webPages"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, err
+	// If no results, try fallback direct mode
+	if len(items) == 0 {
+		log.Printf("[search] no results from Playwright, using fallback")
+		return directMode(query), nil
 	}
 
-	items := make([]SearchItem, 0, len(payload.WebPages.Value))
-	for _, value := range payload.WebPages.Value {
-		url := strings.TrimSpace(value.URL)
-		if url == "" {
-			url = strings.TrimSpace(value.DisplayURL)
-		}
-		items = append(items, SearchItem{
-			Title:   strings.TrimSpace(value.Name),
-			URL:     url,
-			Snippet: strings.TrimSpace(firstNonEmpty(value.Snippet, value.Description)),
-		})
-	}
 	return items, nil
 }
 
-func (c *SearchClient) searchSerpAPI(ctx context.Context, query string, limit int, apiKey string) ([]SearchItem, error) {
-	if strings.TrimSpace(apiKey) == "" {
-		return nil, fmt.Errorf("SERP API 需要配置 API Key")
-	}
-	if limit <= 0 {
-		limit = 5
-	}
-
-	endpoint := "https://serpapi.com/search.json"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+// runPlaywrightSearch executes Google search using Playwright with parallel page fetching.
+func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]SearchItem, error) {
+	// Start Playwright
+	pw, err := playwright.Run()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to start Playwright: %w", err)
 	}
+	defer pw.Stop()
 
-	q := req.URL.Query()
-	q.Set("engine", "google")
-	q.Set("google_domain", "google.com")
-	q.Set("q", query)
-	q.Set("num", strconv.Itoa(limit))
-	q.Set("api_key", apiKey)
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := c.httpClient.Do(req)
+	// Create browser context
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+		Headless: playwright.Bool(true),
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to launch browser: %w", err)
 	}
-	defer resp.Body.Close()
+	defer browser.Close()
 
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("SERP API 搜索失败: %s", resp.Status)
+	ctxPW, err := browser.NewContext()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create context: %w", err)
 	}
+	defer ctxPW.Close()
 
-	var payload struct {
-		OrganicResults []struct {
-			Title       string `json:"title"`
-			Link        string `json:"link"`
-			Snippet     string `json:"snippet"`
-			Description string `json:"description"`
-		} `json:"organic_results"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, err
+	// Create page and search
+	page, err := ctxPW.NewPage()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create page: %w", err)
 	}
 
-	items := make([]SearchItem, 0, len(payload.OrganicResults))
-	for _, value := range payload.OrganicResults {
-		items = append(items, SearchItem{
-			Title:   strings.TrimSpace(value.Title),
-			URL:     strings.TrimSpace(value.Link),
-			Snippet: strings.TrimSpace(firstNonEmpty(value.Snippet, value.Description)),
-		})
+	// Navigate to Google - use proper URL encoding
+	searchURL := fmt.Sprintf("https://www.google.com/search?q=%s", url.QueryEscape(query))
+	if _, err := page.Goto(searchURL, playwright.PageGotoOptions{
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+		Timeout:   playwright.Float(30000),
+	}); err != nil {
+		return nil, fmt.Errorf("failed to navigate to Google: %w", err)
 	}
-	return items, nil
+
+	// Wait for search results to load
+	page.WaitForSelector("#search", playwright.PageWaitForSelectorOptions{
+		Timeout: playwright.Float(10000),
+	})
+
+	// Extract search results
+	results, err := extractGoogleResults(page, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract results: %w", err)
+	}
+
+	log.Printf("[search] extracted %d results from Google", len(results))
+
+	// If we have results, fetch page contents in parallel for better snippets
+	if len(results) > 0 {
+		results = fetchPageContentsParallel(ctx, results, limit)
+	}
+
+	return results, nil
 }
 
-func (c *SearchClient) searchDuckDuckGo(ctx context.Context, query string, limit int) ([]SearchItem, error) {
-	if limit <= 0 {
-		limit = 5
-	}
-	endpoint := "https://duckduckgo.com/"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+// extractGoogleResults extracts search results from Google page using CSS selectors.
+func extractGoogleResults(page playwright.Page, limit int) ([]SearchItem, error) {
+	// Google search results are in div.g or div[data-hveid]
+	resultSelector := "div.g, div[data-hveid]"
+
+	results, err := page.QuerySelectorAll(resultSelector)
 	if err != nil {
-		return nil, err
-	}
-	q := req.URL.Query()
-	q.Set("q", query)
-	q.Set("format", "json")
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("DuckDuckGo 搜索失败: %s", resp.Status)
+		return nil, fmt.Errorf("failed to find results: %w", err)
 	}
 
-	var payload struct {
-		RelatedTopics []struct {
-			Text     string `json:"Text"`
-			FirstURL string `json:"FirstURL"`
-		} `json:"RelatedTopics"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, err
-	}
-
-	items := make([]SearchItem, 0, len(payload.RelatedTopics))
-	for _, topic := range payload.RelatedTopics {
-		if strings.TrimSpace(topic.FirstURL) == "" {
-			continue
-		}
-		items = append(items, SearchItem{
-			Title:   strings.TrimSpace(topic.Text),
-			URL:     strings.TrimSpace(topic.FirstURL),
-			Snippet: strings.TrimSpace(topic.Text),
-		})
-		if len(items) >= limit {
+	var items []SearchItem
+	for i, result := range results {
+		if i >= limit {
 			break
 		}
+
+		// Extract title
+		titleElement, err := result.QuerySelector("h3")
+		if err != nil || titleElement == nil {
+			continue
+		}
+		title, err := titleElement.TextContent()
+		if err != nil || strings.TrimSpace(title) == "" {
+			continue
+		}
+
+		// Extract URL from link
+		linkElement, err := result.QuerySelector("a[href^='http']")
+		if err != nil || linkElement == nil {
+			continue
+		}
+		url, err := linkElement.GetAttribute("href")
+		if err != nil || strings.TrimSpace(url) == "" {
+			continue
+		}
+
+		// Skip Google internal links
+		if strings.Contains(url, "/search?q=") || strings.Contains(url, "google.com") {
+			continue
+		}
+
+		// Extract snippet
+		snippet := ""
+		if snippetElement, err := result.QuerySelector("span[data-stb='on']"); err == nil && snippetElement != nil {
+			snippet, _ = snippetElement.TextContent()
+		} else if descElement, err := result.QuerySelector("div[role='text']"); err == nil && descElement != nil {
+			snippet, _ = descElement.TextContent()
+		} else if descElement, err := result.QuerySelector("div[data-content-feature='1']"); err == nil && descElement != nil {
+			snippet, _ = descElement.TextContent()
+		} else if descElement, err := result.QuerySelector("div[style*='-webkit-line-clamp']"); err == nil && descElement != nil {
+			snippet, _ = descElement.TextContent()
+		}
+
+		items = append(items, SearchItem{
+			Title:   strings.TrimSpace(title),
+			URL:     strings.TrimSpace(url),
+			Snippet: strings.TrimSpace(snippet),
+		})
 	}
+
 	return items, nil
+}
+
+// fetchPageContentsParallel fetches page contents in parallel for better snippets.
+func fetchPageContentsParallel(ctx context.Context, items []SearchItem, limit int) []SearchItem {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	// Use semaphore to limit concurrent requests
+	sem := make(chan struct{}, 3) // Max 3 concurrent
+
+	results := make([]SearchItem, 0, len(items))
+
+	for _, item := range items {
+		sem <- struct{}{}
+		wg.Add(1)
+
+		go func(item SearchItem) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			// Create new browser for each page to avoid conflicts
+			pw, err := playwright.Run()
+			if err != nil {
+				mu.Lock()
+				results = append(results, item)
+				mu.Unlock()
+				return
+			}
+			defer pw.Stop()
+
+			browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+				Headless: playwright.Bool(true),
+			})
+			if err != nil {
+				mu.Lock()
+				results = append(results, item)
+				mu.Unlock()
+				return
+			}
+			defer browser.Close()
+
+			ctxPW, err := browser.NewContext()
+			if err != nil {
+				mu.Lock()
+				results = append(results, item)
+				mu.Unlock()
+				return
+			}
+			defer ctxPW.Close()
+
+			page, err := ctxPW.NewPage()
+			if err != nil {
+				mu.Lock()
+				results = append(results, item)
+				mu.Unlock()
+				return
+			}
+
+			// Try to fetch the page with timeout
+			ctxTimeout, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+
+			go func() {
+				<-ctxTimeout.Done()
+				if ctxTimeout.Err() != nil {
+					page.Close()
+				}
+			}()
+
+			if resp, err := page.Goto(item.URL, playwright.PageGotoOptions{
+				WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+				Timeout:   playwright.Float(10000),
+			}); err == nil && resp != nil && resp.Status() < 400 {
+				// Wait a bit for page to load
+				time.Sleep(1 * time.Second)
+
+				// Get page title if missing
+				if item.Title == "" {
+					if title, err := page.Title(); err == nil && title != "" {
+						item.Title = title
+					}
+				}
+
+				// Get meta description or first paragraph for snippet
+				if item.Snippet == "" {
+					// Try meta description
+					if metaDesc, err := page.Evaluate(`document.querySelector('meta[name="description"]')?.content || ''`); err == nil {
+						if desc, ok := metaDesc.(string); ok && desc != "" {
+							item.Snippet = strings.TrimSpace(desc)
+						}
+					}
+
+					// If still no snippet, try first paragraph
+					if item.Snippet == "" {
+						content, err := page.Evaluate(`
+							(function() {
+								const p = document.querySelector('p');
+								if (p) {
+									const text = p.textContent || '';
+									return text.substring(0, 200);
+								}
+								return '';
+							})()
+						`)
+						if err == nil {
+							if text, ok := content.(string); ok && text != "" {
+								item.Snippet = strings.TrimSpace(text)
+							}
+						}
+					}
+				}
+			}
+
+			mu.Lock()
+			results = append(results, item)
+			mu.Unlock()
+		}(item)
+	}
+
+	wg.Wait()
+
+	return results
 }
 
 // directMode is a minimal fallback used when no provider is configured.
@@ -527,19 +579,8 @@ func normalizeSnippet(snippet string) string {
 }
 
 func normalizeProvider(raw string) (provider string, label string) {
-	base := strings.ToLower(strings.TrimSpace(raw))
-	switch base {
-	case "", "google":
-		return "serpapi", "google"
-	case "serpapi":
-		return "serpapi", "google"
-	case "bing":
-		return "bing", "bing"
-	case "duckduckgo", "ddg":
-		return "ddg", "duckduckgo"
-	default:
-		return base, base
-	}
+	// Now we only support playwright/google
+	return "google", "google"
 }
 
 func truncateForLog(text string, max int) string {

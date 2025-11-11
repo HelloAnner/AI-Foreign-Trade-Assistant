@@ -34,8 +34,6 @@ func TestSettingsPersistence(t *testing.T) {
 		SMTPPassword:    "password",
 		AdminEmail:      "admin@example.com",
 		RatingGuideline: "A/B/C",
-		SearchProvider:  "serpapi",
-		SearchAPIKey:    "serp-key",
 	}
 	data, _ := json.Marshal(payload)
 
@@ -67,9 +65,7 @@ func TestSettingsPersistence(t *testing.T) {
 		settings.SMTPUsername != payload.SMTPUsername ||
 		settings.SMTPPassword != payload.SMTPPassword ||
 		settings.AdminEmail != payload.AdminEmail ||
-		settings.RatingGuideline != payload.RatingGuideline ||
-		settings.SearchProvider != payload.SearchProvider ||
-		settings.SearchAPIKey != payload.SearchAPIKey {
+		settings.RatingGuideline != payload.RatingGuideline {
 		t.Fatalf("settings mismatch after reload: %#v", settings)
 	}
 }

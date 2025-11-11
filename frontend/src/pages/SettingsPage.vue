@@ -117,32 +117,6 @@ C级：暂无明确需求，仅收集资料。"
       <section class="card">
         <header>
           <div>
-            <h2>搜索 API 设置</h2>
-            <p>配置用于外部情报搜索的 API。</p>
-          </div>
-          <button type="button" class="chip" @click="handleTestSearch">
-            <span class="material">travel_explore</span>
-            测试搜索
-          </button>
-        </header>
-        <div class="grid">
-          <label>
-            <span>搜索提供商</span>
-            <select v-model="local.search_provider">
-              <option value="">未配置（直连模式）</option>
-              <option value="serpapi">SerpAPI</option>
-            </select>
-          </label>
-          <label>
-            <span>API Key</span>
-            <input v-model="local.search_api_key" type="password" placeholder="••••••" />
-          </label>
-        </div>
-      </section>
-
-      <section class="card">
-        <header>
-          <div>
             <h2>自动化分析</h2>
             <p>如果开启，新增客户的每一步都会自动运行，并按默认配置保存结果。</p>
           </div>
@@ -205,8 +179,6 @@ const local = reactive({
   smtp_password: '',
   admin_email: '',
   rating_guideline: '',
-  search_provider: '',
-  search_api_key: '',
   automation_enabled: false,
   automation_followup_days: 3,
   automation_required_grade: 'A',

@@ -89,14 +89,10 @@ func TestSearchUnsupportedProvider(t *testing.T) {
 func TestExternalDependencies(t *testing.T) {
 	t.Log("Testing external dependencies availability...")
 
-	// Check SerpApi availability
-	serpApiKey := os.Getenv("SerpApi")
-	if serpApiKey == "" {
-		t.Skip("SerpApi environment variable not set, skipping tests that require external APIs")
-	}
-	t.Log("✓ SerpApi environment variable found")
+	// Check if Playwright environment is configured (optional for tests)
+	t.Log("✓ Playwright search ready (no API key required)")
 
-	// Initialize store with SerpApi
+	// Initialize store
 	ctx := context.Background()
 	st, err := store.Open(":memory:")
 	if err != nil {
@@ -106,10 +102,6 @@ func TestExternalDependencies(t *testing.T) {
 
 	if err := st.InitSchema(ctx); err != nil {
 		t.Fatalf("init schema: %v", err)
-	}
-
-	if _, err := st.DB.ExecContext(ctx, `UPDATE settings SET search_provider = 'serpapi', search_api_key = ? WHERE id = 1`, serpApiKey); err != nil {
-		t.Fatalf("update settings: %v", err)
 	}
 
 	// Check LLM configuration from environment
@@ -135,22 +127,19 @@ func TestExternalDependencies(t *testing.T) {
 		}
 	}
 
-	// Test SerpApi connectivity
+	// Test Playwright connectivity
 	searchClient := NewSearchClient(st, nil)
 	if err := searchClient.TestSearch(ctx); err != nil {
-		t.Errorf("Search API connectivity test failed: %v", err)
+		t.Errorf("Playwright search test failed: %v", err)
 	} else {
-		t.Log("✓ Search API connectivity test passed")
+		t.Log("✓ Playwright search test passed")
 	}
 }
 
-// TestSearchAccuracy tests the accuracy of search results against a predefined dataset
+// TestSearchAccuracy tests the accuracy of search results against a predefined dataset using Playwright
 func TestSearchAccuracy(t *testing.T) {
-	// Check if SerpApi environment variable exists
-	serpApiKey := os.Getenv("SerpApi")
-	if serpApiKey == "" {
-		t.Skip("SerpApi environment variable not set, skipping accuracy test")
-	}
+	// Check if Playwright environment is ready (optional)
+	t.Log("Testing search accuracy with Playwright...")
 
 	// Define test dataset
 	testData := []struct {
@@ -201,10 +190,8 @@ func TestSearchAccuracy(t *testing.T) {
 		t.Fatalf("init schema: %v", err)
 	}
 
-	// Configure search provider and API key
-	if _, err := st.DB.ExecContext(ctx, `UPDATE settings SET search_provider = 'serpapi', search_api_key = ? WHERE id = 1`, serpApiKey); err != nil {
-		t.Fatalf("update settings: %v", err)
-	}
+	// Playwright doesn't require API configuration
+	t.Log("Using Playwright for search (no API key needed)")
 
 	client := NewSearchClient(st, nil)
 

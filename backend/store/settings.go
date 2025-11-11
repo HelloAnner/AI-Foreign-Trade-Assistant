@@ -20,8 +20,6 @@ type Settings struct {
 	SMTPPassword            string `json:"smtp_password"`
 	AdminEmail              string `json:"admin_email"`
 	RatingGuideline         string `json:"rating_guideline"`
-	SearchProvider          string `json:"search_provider"`
-	SearchAPIKey            string `json:"search_api_key"`
 	AutomationEnabled       bool   `json:"automation_enabled"`
 	AutomationFollowupDays  int    `json:"automation_followup_days"`
 	AutomationRequiredGrade string `json:"automation_required_grade"`
@@ -42,8 +40,6 @@ func (s *Store) GetSettings(ctx context.Context) (*Settings, error) {
 	  COALESCE(smtp_password, ''),
 	  COALESCE(admin_email, ''),
 	  COALESCE(rating_guideline, ''),
-	  COALESCE(search_provider, ''),
-	  COALESCE(search_api_key, ''),
 	  COALESCE(automation_enabled, 0),
 	  COALESCE(automation_followup_days, 0),
 	  COALESCE(automation_required_grade, '')
@@ -63,15 +59,15 @@ func (s *Store) GetSettings(ctx context.Context) (*Settings, error) {
 		&settings.SMTPPassword,
 		&settings.AdminEmail,
 		&settings.RatingGuideline,
-		&settings.SearchProvider,
-		&settings.SearchAPIKey,
 		&automationEnabledInt,
 		&settings.AutomationFollowupDays,
 		&settings.AutomationRequiredGrade,
 	); err != nil {
 		return nil, fmt.Errorf("scan settings: %w", err)
 	}
-	settings.AutomationEnabled = automationEnabledInt == 1
+	if automationEnabledInt == 1 {
+		settings.AutomationEnabled = true
+	}
 	if settings.AutomationFollowupDays <= 0 {
 		settings.AutomationFollowupDays = 3
 	}
@@ -93,7 +89,7 @@ func (s *Store) SaveSettings(ctx context.Context, body io.Reader) error {
 		SET llm_base_url = ?, llm_api_key = ?, llm_model = ?,
 		    my_company_name = ?, my_product_profile = ?,
 		    smtp_host = ?, smtp_port = ?, smtp_username = ?, smtp_password = ?,
-		    admin_email = ?, rating_guideline = ?, search_provider = ?, search_api_key = ?,
+		    admin_email = ?, rating_guideline = ?,
 		    automation_enabled = ?, automation_followup_days = ?, automation_required_grade = ?,
 		    updated_at = datetime('now')
 		WHERE id = 1;
@@ -109,8 +105,6 @@ func (s *Store) SaveSettings(ctx context.Context, body io.Reader) error {
 		payload.SMTPPassword,
 		payload.AdminEmail,
 		payload.RatingGuideline,
-		payload.SearchProvider,
-		payload.SearchAPIKey,
 		boolToInt(payload.AutomationEnabled),
 		payload.AutomationFollowupDays,
 		payload.AutomationRequiredGrade,

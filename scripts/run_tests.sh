@@ -16,8 +16,10 @@ CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
+# 项目根目录
+ROOT_DIR="$(dirname "$0")/.."
 # 后端项目根目录
-BACKEND_DIR="$(dirname "$0")/../backend"
+BACKEND_DIR="$ROOT_DIR/backend"
 
 # 显示环境变量说明（表格形式）
 print_env_requirements() {
@@ -112,6 +114,24 @@ run_test() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     print_env_requirements
+
+    # 设置 Playwright 环境变量
+    PLAYWRIGHT_DIR="$(dirname "$0")/../bin/playwright"
+    if [ -d "$PLAYWRIGHT_DIR" ]; then
+        export PLAYWRIGHT_NODE_HOME="$PLAYWRIGHT_DIR/node"
+        export PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_DIR/browsers"
+        export PATH="$PLAYWRIGHT_DIR/node/bin:$PATH"
+        echo ""
+        echo -e "${GREEN}✓ Playwright 环境已配置${NC}"
+        echo "  节点路径: $PLAYWRIGHT_NODE_HOME"
+        echo "  浏览器路径: $PLAYWRIGHT_BROWSERS_PATH"
+        echo ""
+    else
+        echo ""
+        echo -e "${RED}❌ Playwright 环境未找到${NC}"
+        echo "  请先运行: bash scripts/setup-playwright.sh"
+        exit 1
+    fi
 
     # 使用 -count=1 禁用测试缓存，确保每次都真实运行
     local test_flags="-v -count=1"
@@ -216,6 +236,31 @@ echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${CYAN}                         📝 环境变量配置检查${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# 检查 Playwright 环境
+PLAYWRIGHT_DIR="$ROOT_DIR/bin/playwright"
+if [ ! -d "$PLAYWRIGHT_DIR" ]; then
+    echo -e "${YELLOW}⚠ Playwright 环境未找到${NC}"
+    echo -n "是否自动下载 Playwright 到 bin/ 目录? [y/N]: "
+    read -r confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}正在下载 Playwright...${NC}"
+        bash "$ROOT_DIR/scripts/setup-playwright.sh" "$PLAYWRIGHT_DIR"
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ Playwright 下载完成${NC}"
+        else
+            echo -e "${RED}❌ Playwright 下载失败${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}请手动运行: bash scripts/setup-playwright.sh${NC}"
+        exit 1
+    fi
+else
+    echo -e "${GREEN}✓ Playwright 环境已就绪${NC}"
+fi
+
 echo ""
 print_env_requirements
 

@@ -59,32 +59,14 @@ func TestLLMConnection(t *testing.T) {
     }
 }
 
-// TestSearchClient tests search API connectivity using environment variables
-// Required env vars: SerpApi or SERPAPI_API_KEY
+// TestSearchClient tests search functionality using Playwright (no API key required)
 func TestSearchClient(t *testing.T) {
-    apiKey := os.Getenv("SerpApi")
-    if apiKey == "" {
-        apiKey = os.Getenv("SERPAPI_API_KEY")
-    }
-
-    if apiKey == "" {
-        t.Skip("未配置 SerpApi 环境变量（SerpApi 或 SERPAPI_API_KEY），跳过搜索 API 测试")
-    }
-
     st := setupTestStore(t)
     defer st.Close()
 
-    payload := store.Settings{
-        SearchProvider: "serpapi",
-        SearchAPIKey:   apiKey,
-    }
-    data, _ := json.Marshal(payload)
-    if err := st.SaveSettings(context.Background(), bytes.NewReader(data)); err != nil {
-        t.Fatalf("save settings: %v", err)
-    }
-
+    // Playwright doesn't require API configuration
     search := NewSearchClient(st, nil)
     if err := search.TestSearch(context.Background()); err != nil {
-        t.Fatalf("搜索 API 测试失败: %v", err)
+        t.Fatalf("Playwright search test failed: %v", err)
     }
 }
