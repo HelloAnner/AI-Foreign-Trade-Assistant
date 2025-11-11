@@ -246,8 +246,11 @@ PLAYWRIGHT_DIR="$ROOT_DIR/bin/playwright"
 # 检查 Playwright 是否已安装且完整
 is_playwright_ready() {
     local dir="$1"
-    if [ -d "$dir/node/bin" ] && [ -f "$dir/node/bin/node" ] &&
-       [ -f "$dir/package.json" ] && [ -d "$dir/browsers" ]; then
+    # 检查关键文件和目录是否存在且有实际内容
+    if [ -d "$dir/node/bin" ] && [ -f "$dir/node/bin/node" ] && [ -s "$dir/node/bin/node" ] &&
+       [ -f "$dir/package.json" ] && [ -s "$dir/package.json" ] &&
+       [ -d "$dir/browsers" ] && [ "$(ls -A "$dir/browsers" 2>/dev/null | wc -l)" -gt 0 ] &&
+       [ -d "$dir/node_modules" ] && [ "$(ls -A "$dir/node_modules" 2>/dev/null | wc -l)" -gt 0 ]; then
         return 0
     else
         return 1
