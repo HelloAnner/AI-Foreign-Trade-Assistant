@@ -450,6 +450,7 @@ func extractGoogleResults(page playwright.Page, limit int) ([]SearchItem, error)
 	log.Printf("[search] JavaScript extraction returned %d valid results", len(items))
 	return items, nil
 }
+}
 
 // fetchPageContentsParallel fetches page contents in parallel for better snippets.
 func fetchPageContentsParallel(ctx context.Context, items []SearchItem, limit int) []SearchItem {

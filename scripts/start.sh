@@ -10,35 +10,19 @@ PLAYWRIGHT_DIR="$BIN_DIR/playwright"
 
 echo "[0/5] 检查 Playwright 环境..."
 
-# 检查 Playwright 是否已安装且完整
-is_playwright_ready() {
-    local dir="$1"
-    # 检查关键文件和目录是否存在且有实际内容
-    if [ -d "$dir/node/bin" ] && [ -f "$dir/node/bin/node" ] && [ -s "$dir/node/bin/node" ] &&
-       [ -f "$dir/package.json" ] && [ -s "$dir/package.json" ] &&
-       [ -d "$dir/browsers" ] && [ "$(ls -A "$dir/browsers" 2>/dev/null | wc -l)" -gt 0 ] &&
-       [ -d "$dir/node_modules" ] && [ "$(ls -A "$dir/node_modules" 2>/dev/null | wc -l)" -gt 0 ]; then
-        return 0  # 已就绪
-    else
-        return 1  # 不完整或不存在
-    fi
-}
-
-if ! is_playwright_ready "$PLAYWRIGHT_DIR"; then
-    if [ -d "$PLAYWRIGHT_DIR" ]; then
-        echo "⚠ Playwright 环境不完整，删除后重新下载..."
-        rm -rf "$PLAYWRIGHT_DIR"
-    else
-        echo "⚠ Playwright 环境未找到，开始自动下载..."
-    fi
-    bash "$ROOT_DIR/scripts/setup-playwright.sh" "$PLAYWRIGHT_DIR"
-    if [ $? -ne 0 ]; then
-        echo "❌ Playwright 下载失败"
-        exit 1
-    fi
-else
-    echo "✓ Playwright 环境已存在且完整"
+# 检查 Playwright 驱动目录是否存在
+if [ ! -d "$PLAYWRIGHT_DIR/playwright-driver" ]; then
+    echo "⚠ Playwright 驱动未找到，请先运行 setup-playwright.sh"
+    exit 1
 fi
+
+# 检查关键文件
+if [ ! -f "$PLAYWRIGHT_DIR/playwright-driver/package.json" ]; then
+    echo "⚠ Playwright 驱动不完整，请重新运行 setup-playwright.sh"
+    exit 1
+fi
+
+echo "✓ Playwright 驱动已存在"
 
 echo ""
 echo "[1/5] 构建前端..."
@@ -59,6 +43,7 @@ echo "[4/5] 启动本地服务..."
 # 设置 Playwright 环境变量
 export PLAYWRIGHT_NODE_HOME="$PLAYWRIGHT_DIR/node"
 export PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_DIR/browsers"
+export PLAYWRIGHT_DRIVER_PATH="$PLAYWRIGHT_DIR/playwright-driver"
 export PATH="$PLAYWRIGHT_DIR/node/bin:$PATH"
 
 # 启动服务（环境变量会被子进程继承）

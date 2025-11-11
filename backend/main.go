@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -37,6 +38,20 @@ func main() {
 }
 
 func run(ctx context.Context) error {
+	// Auto-detect Playwright driver in local directory if not set
+	// This allows the packaged app to find its bundled playwright environment
+	if os.Getenv("PLAYWRIGHT_DRIVER_PATH") == "" {
+		exePath, err := os.Executable()
+		if err == nil {
+			exeDir := filepath.Dir(exePath)
+			localDriverPath := filepath.Join(exeDir, "playwright", "playwright-driver")
+			if info, err := os.Stat(localDriverPath); err == nil && info.IsDir() {
+				log.Printf("检测到本地 Playwright 驱动: %s", localDriverPath)
+				os.Setenv("PLAYWRIGHT_DRIVER_PATH", localDriverPath)
+			}
+		}
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return err

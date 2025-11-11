@@ -78,6 +78,8 @@ func (s *Store) GetLatestAutomationJob(ctx context.Context, customerID int64) (*
 }
 
 // GetActiveAutomationJob returns the latest queued or running job for a customer.
+// If the job is older than 30 minutes, it's considered "stuck" and will be marked as failed
+// to allow new jobs to be created. This prevents permanently blocking automation.
 func (s *Store) GetActiveAutomationJob(ctx context.Context, customerID int64) (*domain.AutomationJob, error) {
 	if s == nil || s.DB == nil {
 		return nil, fmt.Errorf("store not initialized")
@@ -85,12 +87,26 @@ func (s *Store) GetActiveAutomationJob(ctx context.Context, customerID int64) (*
 	if customerID <= 0 {
 		return nil, fmt.Errorf("invalid customer id")
 	}
+
+	// First, mark any jobs older than 30 minutes as failed to prevent blocking
+	_, _ = s.DB.ExecContext(ctx,
+		`UPDATE automation_jobs
+		 SET status = ?, last_error = ?
+		 WHERE customer_id = ? AND status IN (?, ?) AND created_at < datetime('now', '-30 minutes')`,
+		domain.AutomationStatusFailed,
+		"Job stuck for too long (auto-failed)",
+		customerID,
+		domain.AutomationStatusQueued,
+		domain.AutomationStatusRunning,
+	)
+
+	// Then find the most recent active job
 	row := s.DB.QueryRowContext(ctx,
 		`SELECT id, customer_id, status, stage, last_error, started_at, finished_at, created_at, updated_at
-         FROM automation_jobs
-         WHERE customer_id = ? AND status IN (?, ?)
-         ORDER BY id DESC
-         LIMIT 1`,
+		 FROM automation_jobs
+		 WHERE customer_id = ? AND status IN (?, ?)
+		 ORDER BY id DESC
+		 LIMIT 1`,
 		customerID,
 		domain.AutomationStatusQueued,
 		domain.AutomationStatusRunning,

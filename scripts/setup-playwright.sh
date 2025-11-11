@@ -6,7 +6,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PLAYWRIGHT_VERSION="1.40.0"  # 固定版本，确保稳定性
+PLAYWRIGHT_VERSION="1.49.1"  # 匹配 playwright-go v0.4902.0
+
+# 获取目标平台参数（用于交叉编译）
+TARGET_OS="${2:-}"
+TARGET_ARCH="${3:-}"
 
 # 输出目录（默认为 bin/playwright）
 OUTPUT_DIR="${1:-$ROOT_DIR/bin/playwright}"
@@ -23,11 +27,18 @@ mkdir -p "$BROWSER_DIR"
 
 # 1. 安装 Node.js 运行时（如果不存在）
 if [ ! -f "$NODE_DIR/bin/node" ]; then
-    echo "[1/4] 下载 Node.js..."
+    echo "[1/5] 下载 Node.js..."
 
-    # 检测平台
-    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-    ARCH=$(uname -m)
+    # 检测平台（如果未指定目标平台，则使用当前平台）
+    if [ -n "$TARGET_OS" ] && [ -n "$TARGET_ARCH" ]; then
+        OS="$TARGET_OS"
+        ARCH="$TARGET_ARCH"
+        echo "使用目标平台: $OS/$ARCH"
+    else
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+        echo "使用当前平台: $OS/$ARCH"
+    fi
 
     case "$OS" in
         linux)
@@ -114,8 +125,26 @@ export PLAYWRIGHT_BROWSERS_PATH="$BROWSER_DIR"
 
 echo "✓ 浏览器安装完成"
 
-# 4. 创建启动脚本
-echo "[4/4] 创建启动脚本..."
+# 4. 准备 Playwright 驱动目录（用于 playwright-go）
+echo "[4/5] 准备 Playwright Go 驱动目录..."
+
+# 创建 playwright-go 所需的驱动目录结构
+# playwright-go 期望 PLAYWRIGHT_DRIVER_PATH 指向包含 package/playwright/ 的目录
+# 即 node_modules/@playwright/test/node_modules/playwright
+DRIVER_SOURCE_DIR="${OUTPUT_DIR}/node_modules/playwright"
+DRIVER_TARGET_DIR="${OUTPUT_DIR}/playwright-driver"
+
+if [ -d "$DRIVER_SOURCE_DIR" ]; then
+    # 复制 playwright 目录到目标位置
+    cp -R "$DRIVER_SOURCE_DIR" "$DRIVER_TARGET_DIR"
+    echo "✓ 驱动目录创建完成: ${OUTPUT_DIR}/playwright-driver"
+else
+    echo "❌ 错误: 未找到 playwright 驱动源目录: $DRIVER_SOURCE_DIR"
+    exit 1
+fi
+
+# 5. 创建启动脚本
+echo "[5/5] 创建启动脚本..."
 
 cat > "$OUTPUT_DIR/playwright-path.sh" << 'EOF'
 #!/bin/bash
@@ -123,6 +152,7 @@ cat > "$OUTPUT_DIR/playwright-path.sh" << 'EOF'
 DIR="$(cd "$(dirname "$0")" && pwd)"
 export PLAYWRIGHT_NODE_HOME="$DIR/node"
 export PLAYWRIGHT_BROWSERS_PATH="$DIR/browsers"
+export PLAYWRIGHT_DRIVER_PATH="$DIR/playwright-driver"
 export PATH="$DIR/node/bin:$PATH"
 EOF
 
@@ -135,4 +165,5 @@ echo "使用说明："
 echo "1. 使用前执行：source $OUTPUT_DIR/playwright-path.sh"
 echo "2. 验证安装：npx playwright --version"
 echo "3. 浏览器位置：$BROWSER_DIR"
+echo "4. Go 驱动位置：$OUTPUT_DIR/playwright-driver"
 echo ""
