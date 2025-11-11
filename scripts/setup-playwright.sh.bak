@@ -1,0 +1,257 @@
+#!/bin/bash
+
+# AI 外贸助手 - Playwright 安装脚本
+# 使用方法：bash scripts/setup-playwright.sh [output-dir]
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PLAYWRIGHT_VERSION="1.49.1"  # 匹配 playwright-go v0.4902.0
+
+# 获取目标平台参数（用于交叉编译）
+TARGET_OS="${2:-}"
+TARGET_ARCH="${3:-}"
+
+# 输出目录（默认为 bin/playwright）
+OUTPUT_DIR="${1:-$ROOT_DIR/bin/playwright}"
+NODE_DIR="$OUTPUT_DIR/node"
+BROWSER_DIR="$OUTPUT_DIR/browsers"
+
+echo "📦 开始安装 Playwright..."
+echo "输出目录：$OUTPUT_DIR"
+
+# 检测当前平台
+HOST_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+echo "当前构建平台: $HOST_OS"
+
+if [ -n "$TARGET_OS" ] && [ "$TARGET_OS" != "$HOST_OS" ]; then
+    echo "⚠️  警告：正在为 $TARGET_OS 平台安装 Playwright（当前系统：$HOST_OS）"
+    echo "   这将在下载 Node.js 和浏览器时尝试交叉平台安装"
+    echo ""
+fi
+
+# 确保目录存在
+mkdir -p "$OUTPUT_DIR"
+mkdir -p "$NODE_DIR"
+mkdir -p "$BROWSER_DIR"
+
+# 1. 安装 Node.js 运行时（如果不存在）
+if [ ! -f "$NODE_DIR/bin/node" ]; then
+    echo "[1/5] 下载 Node.js..."
+
+    # 检测平台（如果未指定目标平台，则使用当前平台）
+    if [ -n "$TARGET_OS" ] && [ -n "$TARGET_ARCH" ]; then
+        OS="$TARGET_OS"
+        ARCH="$TARGET_ARCH"
+        echo "使用目标平台: $OS/$ARCH"
+    else
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+        echo "使用当前平台: $OS/$ARCH"
+    fi
+
+    case "$OS" in
+        linux)
+            NODE_OS="linux"
+            ;;
+        darwin)
+            NODE_OS="darwin"
+            ;;
+        msys*|mingw*|cygwin*)
+            NODE_OS="win"
+            ;;
+        *)
+            echo "❌ 不支持的操作系统: $OS"
+            exit 1
+            ;;
+    esac
+
+    case "$ARCH" in
+        x86_64)
+            NODE_ARCH="x64"
+            ;;
+        arm64|aarch64)
+            NODE_ARCH="arm64"
+            ;;
+        *)
+            echo "❌ 不支持的架构: $ARCH"
+            exit 1
+            ;;
+    esac
+
+    NODE_VERSION="20.11.0"
+    NODE_FILENAME="node-v${NODE_VERSION}-${NODE_OS}-${NODE_ARCH}"
+
+    if [ "$NODE_OS" = "win" ]; then
+        NODE_FILENAME="${NODE_FILENAME}.zip"
+    else
+        NODE_FILENAME="${NODE_FILENAME}.tar.gz"
+    fi
+
+    # 下载 Node.js
+    cd /tmp
+    echo "   下载: https://nodejs.org/dist/v${NODE_VERSION}/${NODE_FILENAME}"
+    if curl -L -o "$NODE_FILENAME" "https://nodejs.org/dist/v${NODE_VERSION}/${NODE_FILENAME}" 2>/dev/null; then
+        echo "   下载完成"
+    else
+        echo "❌ 下载失败"
+        rm -f "$NODE_FILENAME"
+        exit 1
+    fi
+
+    # 解压
+    echo "   解压 $NODE_FILENAME..."
+    if [ "$NODE_OS" = "win" ]; then
+        if command -v unzip >/dev/null 2>&1; then
+            unzip -q "$NODE_FILENAME" && mv "node-v${NODE_VERSION}-${NODE_OS}-${NODE_ARCH}" node-tmp
+        else
+            echo "❌ 错误：未找到 unzip 命令，无法解压 Windows Node.js 包"
+            rm -f "$NODE_FILENAME"
+            exit 1
+        fi
+    else
+        tar -xzf "$NODE_FILENAME" && mv "node-v${NODE_VERSION}-${NODE_OS}-${NODE_ARCH}" node-tmp
+    fi
+
+    if [ $? -ne 0 ]; then
+        echo "❌ 解压失败"
+        rm -rf node-tmp
+        rm -f "$NODE_FILENAME"
+        exit 1
+    fi
+
+    # 移动到目标位置
+    if [ -d "node-tmp" ]; then
+        mv node-tmp/* "$NODE_DIR/" 2>/dev/null || cp -R node-tmp/* "$NODE_DIR/"
+        rm -rf node-tmp
+        rm -f "$NODE_FILENAME"
+        echo "✓ Node.js 安装完成"
+    else
+        echo "❌ 错误: 未找到解压后的目录"
+        rm -f "$NODE_FILENAME"
+        exit 1
+    fi
+else
+    echo "✓ Node.js 已存在，跳过下载"
+fi
+
+# 2. 安装 Playwright NPM 包
+echo "[2/4] 安装 Playwright NPM 包..."
+
+cd "$OUTPUT_DIR"
+
+# 初始化 package.json（如果不存在）
+if [ ! -f "package.json" ]; then
+    "$NODE_DIR/bin/npm" init -y
+fi
+
+# 安装 Playwright CLI
+"$NODE_DIR/bin/npm" install --save-dev @playwright/test@"$PLAYWRIGHT_VERSION"
+
+# 3. 安装浏览器
+echo "[3/4] 安装 Playwright 浏览器..."
+
+# 设置浏览器安装路径
+export PLAYWRIGHT_BROWSERS_PATH="$BROWSER_DIR"
+
+# 安装 Chromium
+"$NODE_DIR/bin/npx" playwright install chromium
+
+echo "✓ 浏览器安装完成"
+
+# 4. 准备 Playwright 驱动目录（用于 playwright-go）
+echo "[4/5] 准备 Playwright Go 驱动目录..."
+
+# 创建 playwright-go 所需的驱动目录结构
+# playwright-go 期望 PLAYWRIGHT_DRIVER_PATH 指向包含 package/playwright/ 的目录
+# 即 node_modules/@playwright/test/node_modules/playwright
+DRIVER_SOURCE_DIR="${OUTPUT_DIR}/node_modules/playwright"
+DRIVER_TARGET_DIR="${OUTPUT_DIR}/playwright-driver"
+
+if [ -d "$DRIVER_SOURCE_DIR" ]; then
+    # 复制 playwright 目录到目标位置
+    cp -R "$DRIVER_SOURCE_DIR" "$DRIVER_TARGET_DIR"
+    echo "✓ 驱动目录创建完成: ${OUTPUT_DIR}/playwright-driver"
+else
+    echo "❌ 错误: 未找到 playwright 驱动源目录: $DRIVER_SOURCE_DIR"
+    exit 1
+fi
+
+# 4.1 验证驱动完整性
+echo "[4.5/5] 验证驱动完整性..."
+MISSING_FILES=0
+
+# 检查必要文件
+if [ ! -f "$DRIVER_TARGET_DIR/package.json" ]; then
+    echo "⚠ 警告: 缺少 package.json"
+    MISSING_FILES=$((MISSING_FILES + 1))
+fi
+
+if [ ! -d "$DRIVER_TARGET_DIR/lib" ]; then
+    echo "⚠ 警告: 缺少 lib/ 目录"
+    MISSING_FILES=$((MISSING_FILES + 1))
+fi
+
+if [ ! -d "$DRIVER_TARGET_DIR/node_modules" ] && [ ! -d "$DRIVER_TARGET_DIR/../node_modules" ]; then
+    echo "⚠ 警告: 缺少 node_modules (可能不是关键)"
+fi
+
+# 检查浏览器
+BROWSER_COUNT=$(ls -1 "$BROWSER_DIR" 2>/dev/null | wc -l)
+if [ "$BROWSER_COUNT" -lt 2 ]; then
+    echo "⚠ 警告: 浏览器安装可能不完整 (找到 $BROWSER_COUNT 个)"
+else
+    echo "✓ 检测到 $BROWSER_COUNT 个浏览器安装"
+fi
+
+if [ $MISSING_FILES -eq 0 ]; then
+    echo "✓ 驱动完整性验证通过"
+else
+    echo "⚠ 驱动完整性验证发现 $MISSING_FILES 个问题"
+fi
+
+# 4.2 验证版本匹配
+echo "[4.6/5] 验证版本匹配..."
+NPM_VERSION=$(cd "$OUTPUT_DIR" && "$NODE_DIR/bin/npm" list @playwright/test 2>/dev/null | grep @playwright/test | sed 's/.*@//' | head -1)
+DRIVER_VERSION=$(grep '"version"' "$DRIVER_TARGET_DIR/package.json" 2>/dev/null | sed 's/.*"\(.*\)".*/\1/')
+
+if [ "$NPM_VERSION" = "$DRIVER_VERSION" ]; then
+    echo "✓ 版本匹配: $NPM_VERSION"
+else
+    echo "⚠ 版本可能不匹配: npm=$NPM_VERSION, driver=$DRIVER_VERSION"
+fi
+
+# 5. 创建启动脚本
+echo "[5/5] 创建启动脚本..."
+
+cat > "$OUTPUT_DIR/playwright-path.sh" << 'EOF'
+#!/bin/bash
+# 设置 Playwright 环境变量
+DIR="$(cd "$(dirname "$0")" && pwd)"
+export PLAYWRIGHT_NODE_HOME="$DIR/node"
+export PLAYWRIGHT_BROWSERS_PATH="$DIR/browsers"
+export PLAYWRIGHT_DRIVER_PATH="$DIR/playwright-driver"
+export PATH="$DIR/node/bin:$PATH"
+EOF
+
+chmod +x "$OUTPUT_DIR/playwright-path.sh"
+
+echo ""
+echo "🎉 Playwright 安装完成！"
+echo ""
+echo "验证步骤："
+echo "1. 验证 Playwright: source $OUTPUT_DIR/playwright-path.sh && npx playwright --version"
+echo "2. 验证浏览器: ls -lh $BROWSER_DIR"
+echo "3. 验证驱动: ls -lh $OUTPUT_DIR/playwright-driver/package.json"
+echo "4. 测试运行: cd "$ROOT_DIR/backend" && go run -exec 'env PLAYWRIGHT_DRIVER_PATH=$OUTPUT_DIR/playwright-driver' ."
+echo ""
+echo "目录结构："
+echo "  node/           Node.js runtime"
+echo "  node_modules/   NPM packages"
+echo "  browsers/       Playwright browsers"
+echo "  playwright-driver/  Go driver for playwright-go"
+echo ""
+echo "环境变量："
+echo "  PLAYWRIGHT_DRIVER_PATH=$OUTPUT_DIR/playwright-driver"
+echo "  PLAYWRIGHT_BROWSERS_PATH=$BROWSER_DIR"
+echo ""

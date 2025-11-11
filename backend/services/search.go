@@ -348,88 +348,166 @@ func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]Search
 	return results, nil
 }
 
-// extractGoogleResults extracts search results from Google page using CSS selectors.
 // extractGoogleResults extracts search results from Google page using JavaScript evaluation.
 // This is more reliable than using Go's QuerySelector API for complex Google page structures.
 func extractGoogleResults(page playwright.Page, limit int) ([]SearchItem, error) {
-	js := fmt.Sprintf(`() => {
+	// Add retry mechanism with exponential backoff
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		result, err := page.Evaluate(generateExtractionJS(limit))
+		if err != nil {
+			lastErr = fmt.Errorf("attempt %d failed: %w", attempt, err)
+			log.Printf("[search] JavaScript extraction attempt %d failed: %v", attempt, err)
+			if attempt < maxRetries {
+				// Wait before retry (exponential backoff)
+				time.Sleep(time.Duration(attempt) * time.Second)
+				continue
+			}
+			break
+		}
+
+		// Convert result to SearchItem slice
+		items, err := parseResults(result, limit)
+		if err != nil {
+			lastErr = err
+			if attempt < maxRetries {
+				log.Printf("[search] result parsing failed on attempt %d, retrying...", attempt)
+				time.Sleep(time.Duration(attempt) * time.Second)
+				continue
+			}
+			break
+		}
+
+		if len(items) > 0 {
+			log.Printf("[search] JavaScript extraction succeeded on attempt %d, returned %d results", attempt, len(items))
+			return items, nil
+		}
+
+		lastErr = fmt.Errorf("no results extracted on attempt %d", attempt)
+		if attempt < maxRetries {
+			log.Printf("[search] no results on attempt %d, retrying...", attempt)
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+	}
+
+	log.Printf("[search] JavaScript extraction failed after %d attempts: %v", maxRetries, lastErr)
+	return []SearchItem{}, nil
+}
+
+// generateExtractionJS generates optimized JavaScript for extracting search results
+func generateExtractionJS(limit int) string {
+	return fmt.Sprintf(`() => {
 		const results = [];
 		const h3Elements = document.querySelectorAll('h3');
+		const seenUrls = new Set(); // Track seen URLs to avoid duplicates
 
 		for (let h3 of h3Elements) {
-			const title = h3.textContent?.trim();
-			if (!title || title.length < 5) continue;
+			try {
+				const title = h3.textContent?.trim();
+				if (!title || title.length < 5) continue;
 
-			// Skip if it's a "People also ask" or related search heading
-			if (title.includes('相关搜索') || title.includes('相关') ||
-				title.includes('People also ask') || title.includes('Related searches')) {
-				continue;
-			}
+				// Skip headings that are not search results
+				const skipPatterns = [
+					'相关搜索', '相关', 'People also ask', 'Related searches',
+					'Searches related to', '其他人还搜索了', '其他人还问了',
+					'视频', 'Videos', '图片', 'Images', '地图', 'Maps', '购物', 'Shopping'
+				];
+				if (skipPatterns.some(pattern => title.includes(pattern))) {
+					continue;
+				}
 
-			// Find the link - try multiple strategies
-			let link = null;
+				// Find the link - try multiple strategies
+				let link = null;
+				let container = null;
 
-			// Strategy 1: h3 itself might be inside a link
-			link = h3.closest('a[href^="http"]');
+				// Strategy 1: h3 itself might be inside a link
+				link = h3.closest('a[href^="http"]');
+				if (link) {
+					container = link.closest('[data-hveid], .g, #rso > div, [data-sokoban-container]');
+				}
 
-			// Strategy 2: Find link in parent container
-			if (!link) {
-				const container = h3.closest('[data-hveid], .g, #rso > div, [data-sokoban-container]');
-				if (container) {
-					const links = container.querySelectorAll('a[href^="http"]');
-					for (let l of links) {
-						const href = l.href;
-						// Skip Google internal links
-						if (href && !href.includes('google.com') && !href.includes('/search?q=')) {
-							link = l;
-							break;
+				// Strategy 2: Find link in parent container
+				if (!link) {
+					container = h3.closest('[data-hveid], .g, #rso > div, [data-sokoban-container]');
+					if (container) {
+						const links = container.querySelectorAll('a[href^="http"]');
+						for (let l of links) {
+							const href = l.href;
+							// Validate URL format
+							if (href && href.match(/^https?:\/\//) &&
+								!href.includes('google.com') &&
+								!href.includes('/search?q=') &&
+								!seenUrls.has(href)) {
+								link = l;
+								seenUrls.add(href);
+								break;
+							}
 						}
 					}
 				}
-			}
 
-			if (!link) continue;
+				if (!link || !link.href) continue;
 
-			const url = link.href;
+				const url = link.href;
 
-			// Skip Google internal links
-			if (url.includes('google.com') || url.includes('/search?q=')) continue;
-
-			// Extract snippet - find text near the h3
-			let snippet = '';
-			const container = h3.closest('[data-hveid], .g, #rso > div');
-			if (container) {
-				const textElements = container.querySelectorAll('span, div');
-				for (let elem of textElements) {
-					const text = elem.textContent?.trim();
-					if (text && text.length > 50 && text !== title) {
-						snippet = text;
-						break;
-					}
+				// Skip Google internal links and cached pages
+				if (url.includes('google.com') || url.includes('/search?q=') ||
+					url.includes('webcache.googleusercontent.com') ||
+					url.includes('translate.google.com')) {
+					continue;
 				}
+
+				// Extract snippet - find text near the h3, more intelligently
+				let snippet = '';
+				if (container) {
+					const textElements = container.querySelectorAll('span, div, p');
+					let bestSnippet = '';
+					for (let elem of textElements) {
+						const text = elem.textContent?.trim();
+						// Look for text that is:
+						// - Different from title
+						// - Reasonably long (50-500 chars)
+						// - Not a date or single word
+						if (text && text !== title && text.length >= 50 && text.length <= 500 &&
+							text.split(' ').length > 5 && !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(text)) {
+							if (text.length > bestSnippet.length) {
+								bestSnippet = text;
+							}
+						}
+					}
+					snippet = bestSnippet;
+				}
+
+				// Only add if we have at least title and URL
+				if (title && url) {
+					results.push({
+						title: title,
+						url: url,
+						snippet: snippet
+					});
+				}
+
+				if (results.length >= %d) break;
+			} catch (e) {
+				// Skip this result if there's an error processing it
+				continue;
 			}
-
-			results.push({
-				title: title,
-				url: url,
-				snippet: snippet
-			});
-
-			if (results.length >= %d) break;
 		}
 
 		return results;
 	}`, limit)
+}
 
-	result, err := page.Evaluate(js)
-	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate JavaScript: %w", err)
+// parseResults converts JavaScript evaluation result to SearchItem slice
+func parseResults(result interface{}, limit int) ([]SearchItem, error) {
+	results, ok := result.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected result type: %T", result)
 	}
 
-	// Convert result to SearchItem slice
-	results, ok := result.([]interface{})
-	if !ok || len(results) == 0 {
-		log.Printf("[search] JavaScript extraction returned 0 results")
+	if len(results) == 0 {
 		return []SearchItem{}, nil
 	}
 
@@ -437,18 +515,31 @@ func extractGoogleResults(page playwright.Page, limit int) ([]SearchItem, error)
 	for _, r := range results {
 		if itemMap, ok := r.(map[string]interface{}); ok {
 			item := SearchItem{
-				Title:   strings.TrimSpace(fmt.Sprintf("%v", itemMap["title"])),
-				URL:     strings.TrimSpace(fmt.Sprintf("%v", itemMap["url"])),
-				Snippet: strings.TrimSpace(fmt.Sprintf("%v", itemMap["snippet"])),
+				Title:   sanitizeString(itemMap["title"]),
+				URL:     sanitizeString(itemMap["url"]),
+				Snippet: sanitizeString(itemMap["snippet"]),
 			}
-			if item.Title != "" && item.URL != "" {
+			// Validate URL format
+			if item.Title != "" && item.URL != "" && isValidURL(item.URL) {
 				items = append(items, item)
 			}
 		}
 	}
 
-	log.Printf("[search] JavaScript extraction returned %d valid results", len(items))
 	return items, nil
+}
+
+// sanitizeString safely converts interface{} to string
+func sanitizeString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", v))
+}
+
+// isValidURL checks if string is a valid HTTP/HTTPS URL
+func isValidURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }
 
 // fetchPageContentsParallel fetches page contents in parallel for better snippets.

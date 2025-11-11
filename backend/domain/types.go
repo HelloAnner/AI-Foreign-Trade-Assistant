@@ -217,6 +217,7 @@ type TodoTask struct {
 type CustomerSummary struct {
 	ID             int64  `json:"id"`
 	Name           string `json:"name"`
+	Website        string `json:"website,omitempty"`
 	Country        string `json:"country"`
 	Grade          string `json:"grade"`
 	CreatedAt      string `json:"created_at"`

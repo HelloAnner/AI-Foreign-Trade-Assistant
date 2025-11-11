@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# AI 外贸助手 - Playwright 安装脚本
+# 使用方法：bash scripts/setup-playwright.sh [output-dir]
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PLAYWRIGHT_VERSION="1.49.1"  # 匹配 playwright-go v0.4902.0
+
+# 获取目标平台参数（用于交叉编译）
+TARGET_OS="${2:-}"
+TARGET_ARCH="${3:-}"
+
+# 输出目录（默认为 bin/playwright）
+OUTPUT_DIR="${1:-$ROOT_DIR/bin/playwright}"
+NODE_DIR="$OUTPUT_DIR/node"
+BROWSER_DIR="$OUTPUT_DIR/browsers"
+
+echo "📦 开始安装 Playwright..."
+echo "输出目录：$OUTPUT_DIR"
+
+# 检测当前平台

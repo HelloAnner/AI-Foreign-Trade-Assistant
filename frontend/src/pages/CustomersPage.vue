@@ -53,6 +53,7 @@
               <th>公司</th>
               <th>国家/地区</th>
               <th>评级</th>
+              <th>官网地址</th>
               <th>自动邮件</th>
               <th>最后跟进</th>
               <th class="actions">操作</th>
@@ -60,10 +61,10 @@
           </thead>
           <tbody>
             <tr v-if="loading">
-              <td colspan="6" class="empty">加载中…</td>
+              <td colspan="7" class="empty">加载中…</td>
             </tr>
             <tr v-else-if="!items.length">
-              <td colspan="6" class="empty">暂无客户记录</td>
+              <td colspan="7" class="empty">暂无客户记录</td>
             </tr>
             <tr v-for="customer in items" :key="customer.id">
               <td class="name">
@@ -73,6 +74,12 @@
               <td>{{ customer.country || '—' }}</td>
               <td>
                 <span :class="['badge', `badge--${(customer.grade || 'unknown').toLowerCase()}`]">{{ customer.grade }}</span>
+              </td>
+              <td>
+                <a v-if="customer.website" :href="customer.website.startsWith('http') ? customer.website : 'https://' + customer.website" target="_blank" rel="noopener noreferrer" class="website-link">
+                  {{ customer.website }}
+                </a>
+                <span v-else>—</span>
               </td>
               <td class="followup">
                 <button
@@ -553,6 +560,25 @@ onUnmounted(() => {
   text-align: center;
   padding: 40px 12px;
   color: var(--text-tertiary);
+}
+
+.website-link {
+  color: var(--primary-500);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s ease;
+  word-break: break-all;
+}
+
+.website-link:hover {
+  color: var(--primary-600);
+  text-decoration: underline;
+}
+
+.website-link::after {
+  content: ' ↗';
+  font-size: 0.85em;
+  opacity: 0.7;
 }
 
 @media (max-width: 768px) {

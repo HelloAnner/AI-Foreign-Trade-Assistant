@@ -155,6 +155,10 @@ func (s *Store) ListCustomers(ctx context.Context, filter CustomerListFilter) (*
 			summary.FollowupSent = followupSent.Int64 == 1
 		}
 
+		if website.Valid {
+			summary.Website = strings.TrimSpace(website.String)
+		}
+
 		summary.Status = deriveCustomerStatus(summary, now)
 		if filter.Status != "" && filter.Status != summary.Status {
 			continue
