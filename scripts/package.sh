@@ -1,180 +1,132 @@
 #!/bin/bash
-set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-FRONTEND_DIR="$ROOT_DIR/frontend"
-BACKEND_DIR="$ROOT_DIR/backend"
-STATIC_DIR="$BACKEND_DIR/static"
-DIST_DIR="$ROOT_DIR/dist"
-PLAYWRIGHT_SCRIPT="$ROOT_DIR/scripts/setup-playwright.sh"
+# AI 外贸客户开发助手 - 打包脚本
 
-echo "[1/8] 构建前端..."
-npm --prefix "$FRONTEND_DIR" install >/dev/null
-npm --prefix "$FRONTEND_DIR" run build
+echo "================================================"
+echo "   AI 外贸客户开发助手 - 打包脚本"
+echo "================================================"
 
-echo "[2/8] 同步前端静态资源..."
-rm -rf "$STATIC_DIR"
-mkdir -p "$STATIC_DIR"
-cp -R "$FRONTEND_DIR/dist"/* "$STATIC_DIR"/
+# 设置变量
+PROJECT_DIR="$(pwd)"
+DIST_DIR="dist"
+BACKEND_DIR="backend"
+BIN_DIR="bin"
+SCRIPTS_DIR="scripts"
+PACKAGE_NAME="ai-foreign-trade-assistant"
 
-echo "[3/8] 清理 dist 目录..."
+# 清理旧的dist目录
 rm -rf "$DIST_DIR"
+
+# 创建dist目录
 mkdir -p "$DIST_DIR"
 
-echo "[4/8] 构建 Windows (amd64) 可执行文件..."
-GOOS=windows GOARCH=amd64 go build -C "$BACKEND_DIR" -ldflags "-H=windowsgui" -o "$DIST_DIR/windows/AI_Trade_Assistant.exe"
+echo "正在编译应用程序..."
 
-# 下载 Windows Playwright
-echo "[5/8] 下载 Windows Playwright 环境..."
-bash "$PLAYWRIGHT_SCRIPT" "$DIST_DIR/windows" "windows" "amd64"
-
-echo "[6/8] 构建 macOS (arm64) 可执行文件..."
-GOOS=darwin GOARCH=arm64 go build -C "$BACKEND_DIR" -o "$DIST_DIR/macos/AI_Trade_Assistant"
-
-# 下载 macOS Playwright
-echo "[7/8] 下载 macOS Playwright 环境..."
-mkdir -p "$DIST_DIR/macos"
-bash "$PLAYWRIGHT_SCRIPT" "$DIST_DIR/macos"
-
-# 8. 验证打包完整性
-echo "[8/8] 验证打包完整性..."
-
-verify_package() {
-    local platform=$1
-    local exe_path=$2
-    local playwright_dir=$3
-
-    echo ""
-    echo "验证 $platform 打包:"
-
-    # 检查可执行文件
-    if [ -f "$exe_path" ]; then
-        size=$(ls -lh "$exe_path" | awk '{print $5}')
-        echo "  ✓ 可执行文件: $(basename $exe_path) ($size)"
-    else
-        echo "  ✗ 缺少可执行文件: $exe_path"
-        return 1
-    fi
-
-    # 检查 Playwright 目录
-    if [ ! -d "$playwright_dir" ]; then
-        echo "  ✗ 缺少 playwright 目录: $playwright_dir"
-        return 1
-    fi
-
-    # 检查驱动
-    if [ -f "$playwright_dir/playwright-driver/package.json" ]; then
-        echo "  ✓ Go 驱动已包含"
-    else
-        echo "  ✗ 缺少 Go 驱动"
-        return 1
-    fi
-
-    # 检查浏览器
-    if [ -d "$playwright_dir/browsers" ]; then
-        browser_count=$(ls -1 "$playwright_dir/browsers" | wc -l)
-        echo "  ✓ 浏览器: $browser_count 个"
-    else
-        echo "  ⚠ 浏览器目录可能不完整"
-    fi
-
-    # 检查 Node
-    if [ -f "$playwright_dir/node/bin/node" ]; then
-        echo "  ✓ Node.js runtime"
-    else
-        echo "  ✗ 缺少 Node.js"
-        return 1
-    fi
-
-    return 0
-}
-
-WINDOWS_EXE="$DIST_DIR/windows/AI_Trade_Assistant.exe"
-WINDOWS_PLAYWRIGHT="$DIST_DIR/windows"
-
-MACOS_EXE="$DIST_DIR/macos/AI_Trade_Assistant"
-MACOS_PLAYWRIGHT="$DIST_DIR/macos"
-
-# 验证 Windows 包
-if [ -f "$WINDOWS_EXE" ]; then
-    verify_package "Windows" "$WINDOWS_EXE" "$WINDOWS_PLAYWRIGHT"
-    WINDOWS_OK=$?
-else
-    echo "⚠ Windows 可执行文件不存在，跳过验证"
-    WINDOWS_OK=1
-fi
-
-# 验证 macOS 包
-if [ -f "$MACOS_EXE" ]; then
-    verify_package "macOS" "$MACOS_EXE" "$MACOS_PLAYWRIGHT"
-    MACOS_OK=$?
-else
-    echo "⚠ macOS 可执行文件不存在，跳过验证"
-    MACOS_OK=0
-fi
-
-echo ""
-if [ $WINDOWS_OK -eq 0 ] && [ $MACOS_OK -eq 0 ]; then
-    echo "✅ 打包完成！"
-else
-    echo "❌ 打包验证发现问题，请检查输出"
+# 编译Windows版本
+echo "编译Windows版本..."
+cd "$BACKEND_DIR"
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags playwright -o "../$DIST_DIR/ai-trade-assistant.exe" main.go
+if [ $? -ne 0 ]; then
+    echo "错误: Windows版本编译失败"
     exit 1
 fi
 
-echo ""
-echo "==================== 构建总结 ===================="
-echo ""
-echo "✅ 所有平台打包完成！"
-echo ""
-echo "📦 打包输出:"
-echo ""
-
-# 显示 Windows 构建状态
-if [ -f "$WINDOWS_EXE" ]; then
-    size=$(ls -lh "$WINDOWS_EXE" | awk '{print $5}')
-    echo "   Windows 可执行文件: $size"
-else
-    echo "   ❌ Windows 可执行文件: 构建失败"
+# 编译macOS版本
+echo "编译macOS版本..."
+CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -tags playwright -o "../$DIST_DIR/ai-trade-assistant-macos" main.go
+if [ $? -ne 0 ]; then
+    echo "错误: macOS版本编译失败"
+    exit 1
 fi
 
-# 检查 Windows Playwright
-if [ -d "$WINDOWS_PLAYWRIGHT/playwright-driver" ]; then
-    browser_count=$(ls -1 "$WINDOWS_PLAYWRIGHT/browsers" 2>/dev/null | wc -l)
-    echo "   Windows Playwright: ✓ 驱动 + $browser_count 个浏览器"
-else
-    echo "   ❌ Windows Playwright: 安装失败"
-fi
-echo ""
-
-# 显示 macOS 构建状态
-if [ -f "$MACOS_EXE" ]; then
-    size=$(ls -lh "$MACOS_EXE" | awk '{print $5}')
-    echo "   macOS 可执行文件: $size"
-else
-    echo "   ❌ macOS 可执行文件: 构建失败"
+# 编译Linux版本
+echo "编译Linux版本..."
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags playwright -o "../$DIST_DIR/ai-trade-assistant-linux" main.go
+if [ $? -ne 0 ]; then
+    echo "错误: Linux版本编译失败"
+    exit 1
 fi
 
-# 检查 macOS Playwright
-if [ -d "$MACOS_PLAYWRIGHT/playwright-driver" ]; then
-    browser_count=$(ls -1 "$MACOS_PLAYWRIGHT/browsers" 2>/dev/null | wc -l)
-    echo "   macOS Playwright: ✓ 驱动 + $browser_count 个浏览器"
-else
-    echo "   ❌ macOS Playwright: 安装失败"
-fi
-echo ""
-echo "=================================================="
-echo ""
-echo "📂 输出目录:"
-echo "   $DIST_DIR"
-echo ""
-echo "🚀 使用说明:"
-echo ""
-echo "   Windows 版本:"
-echo "     $DIST_DIR/windows/AI_Trade_Assistant.exe"
-echo ""
-echo "   macOS 版本:"
-echo "     $DIST_DIR/macos/AI_Trade_Assistant"
-echo ""
-echo "   两个版本都包含完整的 Playwright 环境"
-echo "   可以直接在对应平台上运行"
-echo ""
+cd "../$DIST_DIR"
+
+# 复制交付启动脚本
+echo "复制交付启动脚本..."
+cp "../$SCRIPTS_DIR/package/start.bat" ./
+cp "../$SCRIPTS_DIR/package/start.sh" ./
+chmod +x start.sh
+
+# 复制Playwright驱动和浏览器
+echo "复制Playwright驱动和浏览器..."
+cp -r "../$BIN_DIR/playwright" ./
+
+# 创建README文件
+echo "创建使用说明..."
+cat > README.txt << 'EOF'
+AI 外贸客户开发助手 - 使用说明
+================================
+
+本交付包包含完整的AI外贸客户开发助手应用程序，支持Windows、macOS和Linux系统。
+
+快速启动:
+=========
+
+Windows用户:
+  双击运行 start.bat
+
+macOS/Linux用户:
+  在终端中运行: ./start.sh
+
+文件结构:
+========
+- ai-trade-assistant.exe        Windows可执行文件
+- ai-trade-assistant-macos      macOS可执行文件
+- ai-trade-assistant-linux      Linux可执行文件
+- start.bat                     Windows启动脚本
+- start.sh                      macOS/Linux启动脚本
+- playwright/                   Playwright驱动和浏览器
+
+注意事项:
+========
+1. 请确保整个dist目录结构完整，不要移动或删除任何文件
+2. 首次启动可能需要较长时间，因为需要初始化浏览器
+3. 应用程序将在 http://localhost:8080 启动
+4. 日志文件将保存在用户主目录的 .foreign_trade/logs 目录下
+
+技术支持:
+========
+如遇问题，请检查:
+1. 是否所有文件都在dist目录中
+2. 系统是否满足内存和网络要求
+3. 防火墙是否允许应用程序访问网络
+
+EOF
+
+echo "创建zip交付包..."
+cd "../"
+zip -r "$PACKAGE_NAME.zip" "$DIST_DIR" -x "*.DS_Store"
+
+# 计算文件大小
+FILE_SIZE=$(du -h "$PACKAGE_NAME.zip" | cut -f1)
+
+echo "================================================"
+echo "  打包完成！"
+echo "================================================"
+echo "交付包: $PACKAGE_NAME.zip ($FILE_SIZE)"
+echo "输出目录: $DIST_DIR"
+echo
+echo "交付包内容:"
+echo "- ai-trade-assistant.exe        Windows可执行文件"
+echo "- ai-trade-assistant-macos      macOS可执行文件"
+echo "- ai-trade-assistant-linux      Linux可执行文件"
+echo "- start.bat                     Windows启动脚本"
+echo "- start.sh                      macOS/Linux启动脚本"
+echo "- playwright/                   Playwright驱动和浏览器"
+echo "- README.txt                    使用说明"
+echo
+echo "客户使用说明:"
+echo "1. 解压zip包到任意目录"
+echo "2. Windows: 双击运行 dist/start.bat"
+echo "3. macOS/Linux: 在终端中运行 dist/start.sh"
+echo "4. 应用程序将在 http://localhost:8080 启动"
+echo
+echo "注意: 交付包已包含完整的Playwright驱动和浏览器环境，无需额外安装！"

@@ -38,18 +38,41 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	// Auto-detect Playwright driver in local directory if not set
-	// This allows the packaged app to find its bundled playwright environment
-	if os.Getenv("PLAYWRIGHT_DRIVER_PATH") == "" {
-		exePath, err := os.Executable()
-		if err == nil {
-			exeDir := filepath.Dir(exePath)
-			localDriverPath := filepath.Join(exeDir, "playwright", "playwright-driver")
-			if info, err := os.Stat(localDriverPath); err == nil && info.IsDir() {
-				log.Printf("检测到本地 Playwright 驱动: %s", localDriverPath)
-				os.Setenv("PLAYWRIGHT_DRIVER_PATH", localDriverPath)
-			}
+	// Force using custom playwright driver path instead of system cache
+	// This ensures the app uses the driver from the relative directory
+	exePath, err := os.Executable()
+	if err == nil {
+		exeDir := filepath.Dir(exePath)
+
+		// For development: use bin/playwright directory relative to project root
+		// For delivery: use playwright directory relative to executable
+		projectRoot := filepath.Dir(exeDir)
+
+		// Try project-relative path first (for development)
+		projectDriverPath := filepath.Join(projectRoot, "bin", "playwright", "playwright-driver")
+		projectBrowsersPath := filepath.Join(projectRoot, "bin", "playwright", "browsers")
+
+		// Try executable-relative path (for delivery)
+		exeDriverPath := filepath.Join(exeDir, "playwright", "playwright-driver")
+		exeBrowsersPath := filepath.Join(exeDir, "playwright", "browsers")
+
+		// Check which path exists and set environment variables
+		if _, err := os.Stat(projectDriverPath); err == nil {
+			log.Printf("使用项目相对路径的 Playwright 驱动: %s", projectDriverPath)
+			os.Setenv("PLAYWRIGHT_DRIVER_PATH", projectDriverPath)
+			os.Setenv("PLAYWRIGHT_BROWSERS_PATH", projectBrowsersPath)
+		} else if _, err := os.Stat(exeDriverPath); err == nil {
+			log.Printf("使用可执行文件相对路径的 Playwright 驱动: %s", exeDriverPath)
+			os.Setenv("PLAYWRIGHT_DRIVER_PATH", exeDriverPath)
+			os.Setenv("PLAYWRIGHT_BROWSERS_PATH", exeBrowsersPath)
 		}
+	}
+
+	// Log the final driver path being used
+	if driverPath := os.Getenv("PLAYWRIGHT_DRIVER_PATH"); driverPath != "" {
+		log.Printf("最终使用的 Playwright 驱动路径: %s", driverPath)
+	} else {
+		log.Printf("警告: 未设置 Playwright 驱动路径，将使用系统缓存")
 	}
 
 	homeDir, err := os.UserHomeDir()
