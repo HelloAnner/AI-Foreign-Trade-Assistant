@@ -1,0 +1,12 @@
+.git
+.gitignore
+.DS_Store
+bin/
+dist/
+find_jobs/
+node_modules/
+frontend/node_modules/
+ui/
+package/
+**/*.log
+**/__pycache__

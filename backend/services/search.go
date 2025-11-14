@@ -141,7 +141,7 @@ func (r *SearchPlanResult) Items(stage SearchStage) []SearchItem {
 	return res.Items
 }
 
-// SearchClient invokes Google search using Playwright.
+// SearchClient invokes Bing search using Playwright.
 type SearchClient struct {
 	store *store.Store
 }
@@ -165,7 +165,7 @@ func (c *SearchClient) ExecutePlan(ctx context.Context, customerName string) (*S
 
 	result := &SearchPlanResult{
 		Customer:     customerName,
-		Provider:     "google",
+		Provider:     "bing",
 		StageResults: make(map[SearchStage]*SearchTaskResult),
 	}
 
@@ -246,7 +246,7 @@ func (c *SearchClient) TestSearch(ctx context.Context) error {
 	return nil
 }
 
-// searchWithPlaywright performs a Google search using Playwright and returns top results.
+// searchWithPlaywright performs a Bing search using Playwright and returns top results.
 func (c *SearchClient) searchWithPlaywright(ctx context.Context, query string, limit int) ([]SearchItem, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("搜索查询不能为空")
@@ -272,7 +272,7 @@ func (c *SearchClient) searchWithPlaywright(ctx context.Context, query string, l
 	return items, nil
 }
 
-// runPlaywrightSearch executes Google search using Playwright with parallel page fetching.
+// runPlaywrightSearch executes Bing search using Playwright with parallel page fetching.
 func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]SearchItem, error) {
 	// Start Playwright
 	pw, err := playwright.Run()
@@ -315,17 +315,17 @@ func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]Search
 		return nil, fmt.Errorf("failed to create page: %w", err)
 	}
 
-	// Navigate to Google - use proper URL encoding
-	searchURL := fmt.Sprintf("https://www.google.com/search?q=%s", url.QueryEscape(query))
+	// Navigate to Bing - use proper URL encoding
+	searchURL := fmt.Sprintf("https://www.bing.com/search?q=%s&setlang=en-us&form=AIASSI", url.QueryEscape(query))
 	if _, err := page.Goto(searchURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateNetworkidle,
 		Timeout:   playwright.Float(30000),
 	}); err != nil {
-		return nil, fmt.Errorf("failed to navigate to Google: %w", err)
+		return nil, fmt.Errorf("failed to navigate to Bing: %w", err)
 	}
 
 	// Wait for search results to load
-	page.WaitForSelector("#search", playwright.PageWaitForSelectorOptions{
+	page.WaitForSelector("#b_results", playwright.PageWaitForSelectorOptions{
 		Timeout: playwright.Float(15000),
 	})
 
@@ -333,12 +333,12 @@ func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]Search
 	time.Sleep(2 * time.Second)
 
 	// Extract search results
-	results, err := extractGoogleResults(page, limit)
+	results, err := extractBingResults(page, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract results: %w", err)
 	}
 
-	log.Printf("[search] extracted %d results from Google", len(results))
+	log.Printf("[search] extracted %d results from Bing", len(results))
 
 	// If we have results, fetch page contents in parallel for better snippets
 	if len(results) > 0 {
@@ -348,9 +348,8 @@ func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]Search
 	return results, nil
 }
 
-// extractGoogleResults extracts search results from Google page using JavaScript evaluation.
-// This is more reliable than using Go's QuerySelector API for complex Google page structures.
-func extractGoogleResults(page playwright.Page, limit int) ([]SearchItem, error) {
+// extractBingResults extracts search results from Bing page using JavaScript evaluation.
+func extractBingResults(page playwright.Page, limit int) ([]SearchItem, error) {
 	// Add retry mechanism with exponential backoff
 	maxRetries := 3
 	var lastErr error
@@ -396,106 +395,38 @@ func extractGoogleResults(page playwright.Page, limit int) ([]SearchItem, error)
 	return []SearchItem{}, nil
 }
 
-// generateExtractionJS generates optimized JavaScript for extracting search results
+// generateExtractionJS generates optimized JavaScript for extracting Bing search results
 func generateExtractionJS(limit int) string {
 	return fmt.Sprintf(`() => {
 		const results = [];
-		const h3Elements = document.querySelectorAll('h3');
-		const seenUrls = new Set(); // Track seen URLs to avoid duplicates
-
-		for (let h3 of h3Elements) {
+		const cards = document.querySelectorAll('#b_results > li.b_algo');
+		const seen = new Set();
+		for (const card of cards) {
 			try {
-				const title = h3.textContent?.trim();
-				if (!title || title.length < 5) continue;
+				const link = card.querySelector('h2 a');
+				if (!link) continue;
+				const title = link.textContent?.trim();
+				const url = link.href?.trim();
+				if (!title || !url) continue;
+				if (seen.has(url)) continue;
+				seen.add(url);
 
-				// Skip headings that are not search results
-				const skipPatterns = [
-					'相关搜索', '相关', 'People also ask', 'Related searches',
-					'Searches related to', '其他人还搜索了', '其他人还问了',
-					'视频', 'Videos', '图片', 'Images', '地图', 'Maps', '购物', 'Shopping'
-				];
-				if (skipPatterns.some(pattern => title.includes(pattern))) {
-					continue;
-				}
-
-				// Find the link - try multiple strategies
-				let link = null;
-				let container = null;
-
-				// Strategy 1: h3 itself might be inside a link
-				link = h3.closest('a[href^="http"]');
-				if (link) {
-					container = link.closest('[data-hveid], .g, #rso > div, [data-sokoban-container]');
-				}
-
-				// Strategy 2: Find link in parent container
-				if (!link) {
-					container = h3.closest('[data-hveid], .g, #rso > div, [data-sokoban-container]');
-					if (container) {
-						const links = container.querySelectorAll('a[href^="http"]');
-						for (let l of links) {
-							const href = l.href;
-							// Validate URL format
-							if (href && href.match(/^https?:\/\//) &&
-								!href.includes('google.com') &&
-								!href.includes('/search?q=') &&
-								!seenUrls.has(href)) {
-								link = l;
-								seenUrls.add(href);
-								break;
-							}
-						}
-					}
-				}
-
-				if (!link || !link.href) continue;
-
-				const url = link.href;
-
-				// Skip Google internal links and cached pages
-				if (url.includes('google.com') || url.includes('/search?q=') ||
-					url.includes('webcache.googleusercontent.com') ||
-					url.includes('translate.google.com')) {
-					continue;
-				}
-
-				// Extract snippet - find text near the h3, more intelligently
 				let snippet = '';
-				if (container) {
-					const textElements = container.querySelectorAll('span, div, p');
-					let bestSnippet = '';
-					for (let elem of textElements) {
-						const text = elem.textContent?.trim();
-						// Look for text that is:
-						// - Different from title
-						// - Reasonably long (50-500 chars)
-						// - Not a date or single word
-						if (text && text !== title && text.length >= 50 && text.length <= 500 &&
-							text.split(' ').length > 5 && !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(text)) {
-							if (text.length > bestSnippet.length) {
-								bestSnippet = text;
-							}
-						}
+				const snippetCandidates = card.querySelectorAll('p, .b_paractl, .b_caption');
+				for (const node of snippetCandidates) {
+					const text = node.textContent?.trim();
+					if (text && text.length >= 40) {
+						snippet = text;
+						break;
 					}
-					snippet = bestSnippet;
 				}
 
-				// Only add if we have at least title and URL
-				if (title && url) {
-					results.push({
-						title: title,
-						url: url,
-						snippet: snippet
-					});
-				}
-
+				results.push({ title, url, snippet });
 				if (results.length >= %d) break;
-			} catch (e) {
-				// Skip this result if there's an error processing it
+			} catch (err) {
 				continue;
 			}
 		}
-
 		return results;
 	}`, limit)
 }
@@ -726,8 +657,8 @@ func normalizeSnippet(snippet string) string {
 }
 
 func normalizeProvider(raw string) (provider string, label string) {
-	// Now we only support playwright/google
-	return "google", "google"
+	// Currently only Bing via Playwright is supported
+	return "bing", "bing"
 }
 
 func truncateForLog(text string, max int) string {

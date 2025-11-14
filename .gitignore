@@ -9,3 +9,5 @@ frontend/dist
 frontend/node_modules
 
 backend/.gocache
+
+data
