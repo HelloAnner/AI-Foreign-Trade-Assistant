@@ -118,7 +118,7 @@ COPY docker/entrypoint.sh /usr/local/bin/ai-entrypoint.sh
 RUN chmod +x /usr/local/bin/ai-entrypoint.sh
 
 VOLUME ["/data"]
-EXPOSE 7860
+EXPOSE 25000
 
 ENTRYPOINT ["ai-entrypoint.sh"]
 CMD ["/app/ai-trade-assistant"]

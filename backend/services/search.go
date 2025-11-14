@@ -141,7 +141,7 @@ func (r *SearchPlanResult) Items(stage SearchStage) []SearchItem {
 	return res.Items
 }
 
-// SearchClient invokes Bing search using Playwright.
+// SearchClient invokes Google search using Playwright.
 type SearchClient struct {
 	store *store.Store
 }
@@ -165,7 +165,7 @@ func (c *SearchClient) ExecutePlan(ctx context.Context, customerName string) (*S
 
 	result := &SearchPlanResult{
 		Customer:     customerName,
-		Provider:     "bing",
+		Provider:     "google",
 		StageResults: make(map[SearchStage]*SearchTaskResult),
 	}
 
@@ -246,7 +246,7 @@ func (c *SearchClient) TestSearch(ctx context.Context) error {
 	return nil
 }
 
-// searchWithPlaywright performs a Bing search using Playwright and returns top results.
+// searchWithPlaywright performs a Google search using Playwright and returns top results.
 func (c *SearchClient) searchWithPlaywright(ctx context.Context, query string, limit int) ([]SearchItem, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("搜索查询不能为空")
@@ -272,7 +272,7 @@ func (c *SearchClient) searchWithPlaywright(ctx context.Context, query string, l
 	return items, nil
 }
 
-// runPlaywrightSearch executes Bing search using Playwright with parallel page fetching.
+// runPlaywrightSearch executes Google search using Playwright with parallel page fetching.
 func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]SearchItem, error) {
 	// Start Playwright
 	pw, err := playwright.Run()
@@ -315,17 +315,17 @@ func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]Search
 		return nil, fmt.Errorf("failed to create page: %w", err)
 	}
 
-	// Navigate to Bing - use proper URL encoding
-	searchURL := fmt.Sprintf("https://www.bing.com/search?q=%s&setlang=en-us&form=AIASSI", url.QueryEscape(query))
+	// Navigate to Google - use proper URL encoding
+	searchURL := fmt.Sprintf("https://www.google.com/search?q=%s", url.QueryEscape(query))
 	if _, err := page.Goto(searchURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateNetworkidle,
 		Timeout:   playwright.Float(30000),
 	}); err != nil {
-		return nil, fmt.Errorf("failed to navigate to Bing: %w", err)
+		return nil, fmt.Errorf("failed to navigate to Google: %w", err)
 	}
 
 	// Wait for search results to load
-	page.WaitForSelector("#b_results", playwright.PageWaitForSelectorOptions{
+	page.WaitForSelector("#search", playwright.PageWaitForSelectorOptions{
 		Timeout: playwright.Float(15000),
 	})
 
@@ -333,12 +333,12 @@ func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]Search
 	time.Sleep(2 * time.Second)
 
 	// Extract search results
-	results, err := extractBingResults(page, limit)
+	results, err := extractGoogleResults(page, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract results: %w", err)
 	}
 
-	log.Printf("[search] extracted %d results from Bing", len(results))
+	log.Printf("[search] extracted %d results from Google", len(results))
 
 	// If we have results, fetch page contents in parallel for better snippets
 	if len(results) > 0 {
@@ -348,97 +348,88 @@ func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]Search
 	return results, nil
 }
 
-// extractBingResults extracts search results from Bing page using JavaScript evaluation.
-func extractBingResults(page playwright.Page, limit int) ([]SearchItem, error) {
-	// Add retry mechanism with exponential backoff
-	maxRetries := 3
-	var lastErr error
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		result, err := page.Evaluate(generateExtractionJS(limit))
-		if err != nil {
-			lastErr = fmt.Errorf("attempt %d failed: %w", attempt, err)
-			log.Printf("[search] JavaScript extraction attempt %d failed: %v", attempt, err)
-			if attempt < maxRetries {
-				// Wait before retry (exponential backoff)
-				time.Sleep(time.Duration(attempt) * time.Second)
-				continue
-			}
-			break
-		}
-
-		// Convert result to SearchItem slice
-		items, err := parseResults(result, limit)
-		if err != nil {
-			lastErr = err
-			if attempt < maxRetries {
-				log.Printf("[search] result parsing failed on attempt %d, retrying...", attempt)
-				time.Sleep(time.Duration(attempt) * time.Second)
-				continue
-			}
-			break
-		}
-
-		if len(items) > 0 {
-			log.Printf("[search] JavaScript extraction succeeded on attempt %d, returned %d results", attempt, len(items))
-			return items, nil
-		}
-
-		lastErr = fmt.Errorf("no results extracted on attempt %d", attempt)
-		if attempt < maxRetries {
-			log.Printf("[search] no results on attempt %d, retrying...", attempt)
-			time.Sleep(time.Duration(attempt) * time.Second)
-		}
-	}
-
-	log.Printf("[search] JavaScript extraction failed after %d attempts: %v", maxRetries, lastErr)
-	return []SearchItem{}, nil
-}
-
-// generateExtractionJS generates optimized JavaScript for extracting Bing search results
-func generateExtractionJS(limit int) string {
-	return fmt.Sprintf(`() => {
+// extractGoogleResults extracts search results from Google page using CSS selectors.
+// extractGoogleResults extracts search results from Google page using JavaScript evaluation.
+// This is more reliable than using Go's QuerySelector API for complex Google page structures.
+func extractGoogleResults(page playwright.Page, limit int) ([]SearchItem, error) {
+	js := fmt.Sprintf(`() => {
 		const results = [];
-		const cards = document.querySelectorAll('#b_results > li.b_algo');
-		const seen = new Set();
-		for (const card of cards) {
-			try {
-				const link = card.querySelector('h2 a');
-				if (!link) continue;
-				const title = link.textContent?.trim();
-				const url = link.href?.trim();
-				if (!title || !url) continue;
-				if (seen.has(url)) continue;
-				seen.add(url);
+		const h3Elements = document.querySelectorAll('h3');
 
-				let snippet = '';
-				const snippetCandidates = card.querySelectorAll('p, .b_paractl, .b_caption');
-				for (const node of snippetCandidates) {
-					const text = node.textContent?.trim();
-					if (text && text.length >= 40) {
+		for (let h3 of h3Elements) {
+			const title = h3.textContent?.trim();
+			if (!title || title.length < 5) continue;
+
+			// Skip if it's a "People also ask" or related search heading
+			if (title.includes('相关搜索') || title.includes('相关') ||
+				title.includes('People also ask') || title.includes('Related searches')) {
+				continue;
+			}
+
+			// Find the link - try multiple strategies
+			let link = null;
+
+			// Strategy 1: h3 itself might be inside a link
+			link = h3.closest('a[href^="http"]');
+
+			// Strategy 2: Find link in parent container
+			if (!link) {
+				const container = h3.closest('[data-hveid], .g, #rso > div, [data-sokoban-container]');
+				if (container) {
+					const links = container.querySelectorAll('a[href^="http"]');
+					for (let l of links) {
+						const href = l.href;
+						// Skip Google internal links
+						if (href && !href.includes('google.com') && !href.includes('/search?q=')) {
+							link = l;
+							break;
+						}
+					}
+				}
+			}
+
+			if (!link) continue;
+
+			const url = link.href;
+
+			// Skip Google internal links
+			if (url.includes('google.com') || url.includes('/search?q=')) continue;
+
+			// Extract snippet - find text near the h3
+			let snippet = '';
+			const container = h3.closest('[data-hveid], .g, #rso > div');
+			if (container) {
+				const textElements = container.querySelectorAll('span, div');
+				for (let elem of textElements) {
+					const text = elem.textContent?.trim();
+					if (text && text.length > 50 && text !== title) {
 						snippet = text;
 						break;
 					}
 				}
-
-				results.push({ title, url, snippet });
-				if (results.length >= %d) break;
-			} catch (err) {
-				continue;
 			}
+
+			results.push({
+				title: title,
+				url: url,
+				snippet: snippet
+			});
+
+			if (results.length >= %d) break;
 		}
+
 		return results;
 	}`, limit)
-}
 
-// parseResults converts JavaScript evaluation result to SearchItem slice
-func parseResults(result interface{}, limit int) ([]SearchItem, error) {
-	results, ok := result.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("unexpected result type: %T", result)
+	result, err := page.Evaluate(js)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate JavaScript: %w", err)
 	}
 
-	if len(results) == 0 {
+	// Convert result to SearchItem slice
+	results, ok := result.([]interface{})
+	if !ok || len(results) == 0 {
+		log.Printf("[search] JavaScript extraction returned 0 results")
 		return []SearchItem{}, nil
 	}
 
@@ -446,31 +437,18 @@ func parseResults(result interface{}, limit int) ([]SearchItem, error) {
 	for _, r := range results {
 		if itemMap, ok := r.(map[string]interface{}); ok {
 			item := SearchItem{
-				Title:   sanitizeString(itemMap["title"]),
-				URL:     sanitizeString(itemMap["url"]),
-				Snippet: sanitizeString(itemMap["snippet"]),
+				Title:   strings.TrimSpace(fmt.Sprintf("%v", itemMap["title"])),
+				URL:     strings.TrimSpace(fmt.Sprintf("%v", itemMap["url"])),
+				Snippet: strings.TrimSpace(fmt.Sprintf("%v", itemMap["snippet"])),
 			}
-			// Validate URL format
-			if item.Title != "" && item.URL != "" && isValidURL(item.URL) {
+			if item.Title != "" && item.URL != "" {
 				items = append(items, item)
 			}
 		}
 	}
 
+	log.Printf("[search] JavaScript extraction returned %d valid results", len(items))
 	return items, nil
-}
-
-// sanitizeString safely converts interface{} to string
-func sanitizeString(v interface{}) string {
-	if v == nil {
-		return ""
-	}
-	return strings.TrimSpace(fmt.Sprintf("%v", v))
-}
-
-// isValidURL checks if string is a valid HTTP/HTTPS URL
-func isValidURL(s string) bool {
-	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }
 
 // fetchPageContentsParallel fetches page contents in parallel for better snippets.
@@ -657,8 +635,8 @@ func normalizeSnippet(snippet string) string {
 }
 
 func normalizeProvider(raw string) (provider string, label string) {
-	// Currently only Bing via Playwright is supported
-	return "bing", "bing"
+	// Now we only support playwright/google
+	return "google", "google"
 }
 
 func truncateForLog(text string, max int) string {
