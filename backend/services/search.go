@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -13,7 +14,35 @@ import (
 	"github.com/playwright-community/playwright-go"
 )
 
-const defaultSearchTimeout = 25 * time.Second
+const (
+	defaultSearchTimeout    = 25 * time.Second
+	googleConnectivityProbe = "https://www.google.com/generate_204"
+)
+
+type searchProvider string
+
+const (
+	searchProviderGoogle searchProvider = "google"
+	searchProviderBing   searchProvider = "bing"
+)
+
+func (p searchProvider) displayName() string {
+	switch p {
+	case searchProviderBing:
+		return "Bing"
+	default:
+		return "Google"
+	}
+}
+
+func (p searchProvider) logLabel() string {
+	switch p {
+	case searchProviderBing:
+		return "Bing 搜索"
+	default:
+		return "谷歌搜索"
+	}
+}
 
 // SearchStage enumerates the predefined concurrent search tracks.
 type SearchStage string
@@ -141,16 +170,52 @@ func (r *SearchPlanResult) Items(stage SearchStage) []SearchItem {
 	return res.Items
 }
 
-// SearchClient invokes Google search using Playwright.
+// SearchClient invokes search engines using Playwright.
 type SearchClient struct {
-	store *store.Store
+	store    *store.Store
+	provider searchProvider
 }
 
-// NewSearchClient constructs a search client.
-func NewSearchClient(st *store.Store, _ interface{}) *SearchClient {
-	return &SearchClient{
-		store: st,
+// NewSearchClient constructs a search client and determines which provider to use.
+func NewSearchClient(st *store.Store, httpClient *http.Client) *SearchClient {
+	provider, err := detectSearchProvider(httpClient)
+	if err != nil {
+		log.Printf("[search] Google 连通性检测失败，切换至 Bing 搜索: %v", err)
+	} else {
+		log.Printf("[search] Google 连通性检测通过，使用谷歌搜索")
 	}
+	log.Printf("[search] 当前使用 %s", provider.logLabel())
+	return &SearchClient{
+		store:    st,
+		provider: provider,
+	}
+}
+
+func detectSearchProvider(httpClient *http.Client) (searchProvider, error) {
+	if httpClient == nil {
+		httpClient = &http.Client{
+			Timeout: 5 * time.Second,
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, googleConnectivityProbe, nil)
+	if err != nil {
+		return searchProviderBing, err
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return searchProviderBing, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		return searchProviderGoogle, nil
+	}
+	return searchProviderBing, fmt.Errorf("probe returned status %d", resp.StatusCode)
 }
 
 // ExecutePlan runs the predefined parallel search plan using Playwright.
@@ -165,7 +230,7 @@ func (c *SearchClient) ExecutePlan(ctx context.Context, customerName string) (*S
 
 	result := &SearchPlanResult{
 		Customer:     customerName,
-		Provider:     "google",
+		Provider:     string(c.provider),
 		StageResults: make(map[SearchStage]*SearchTaskResult),
 	}
 
@@ -255,10 +320,10 @@ func (c *SearchClient) searchWithPlaywright(ctx context.Context, query string, l
 		limit = 10
 	}
 
-	log.Printf("[search] playwright query=\"%s\" limit=%d", truncateForLog(query, 80), limit)
+	log.Printf("[search] provider=%s playwright query=\"%s\" limit=%d", c.provider.displayName(), truncateForLog(query, 80), limit)
 
 	// Run Playwright search
-	items, err := runPlaywrightSearch(ctx, query, limit)
+	items, err := runPlaywrightSearch(ctx, query, limit, c.provider)
 	if err != nil {
 		return nil, fmt.Errorf("Playwright search failed: %w", err)
 	}
@@ -272,8 +337,8 @@ func (c *SearchClient) searchWithPlaywright(ctx context.Context, query string, l
 	return items, nil
 }
 
-// runPlaywrightSearch executes Google search using Playwright with parallel page fetching.
-func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]SearchItem, error) {
+// runPlaywrightSearch executes search using Playwright for the configured provider.
+func runPlaywrightSearch(ctx context.Context, query string, limit int, provider searchProvider) ([]SearchItem, error) {
 	// Start Playwright
 	pw, err := playwright.Run()
 	if err != nil {
@@ -315,17 +380,26 @@ func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]Search
 		return nil, fmt.Errorf("failed to create page: %w", err)
 	}
 
-	// Navigate to Google - use proper URL encoding
-	searchURL := fmt.Sprintf("https://www.google.com/search?q=%s", url.QueryEscape(query))
+	var searchURL string
+	var waitSelector string
+	switch provider {
+	case searchProviderBing:
+		searchURL = fmt.Sprintf("https://www.bing.com/search?q=%s&setlang=en-us&cc=US", url.QueryEscape(query))
+		waitSelector = "#b_content"
+	default:
+		searchURL = fmt.Sprintf("https://www.google.com/search?q=%s", url.QueryEscape(query))
+		waitSelector = "#search"
+	}
+
 	if _, err := page.Goto(searchURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateNetworkidle,
 		Timeout:   playwright.Float(30000),
 	}); err != nil {
-		return nil, fmt.Errorf("failed to navigate to Google: %w", err)
+		return nil, fmt.Errorf("failed to navigate to %s: %w", provider.displayName(), err)
 	}
 
 	// Wait for search results to load
-	page.WaitForSelector("#search", playwright.PageWaitForSelectorOptions{
+	page.WaitForSelector(waitSelector, playwright.PageWaitForSelectorOptions{
 		Timeout: playwright.Float(15000),
 	})
 
@@ -333,12 +407,10 @@ func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]Search
 	time.Sleep(2 * time.Second)
 
 	// Extract search results
-	results, err := extractGoogleResults(page, limit)
+	results, err := extractSearchResults(page, limit, provider)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract results: %w", err)
+		return nil, err
 	}
-
-	log.Printf("[search] extracted %d results from Google", len(results))
 
 	// If we have results, fetch page contents in parallel for better snippets
 	if len(results) > 0 {
@@ -348,11 +420,79 @@ func runPlaywrightSearch(ctx context.Context, query string, limit int) ([]Search
 	return results, nil
 }
 
-// extractGoogleResults extracts search results from Google page using CSS selectors.
-// extractGoogleResults extracts search results from Google page using JavaScript evaluation.
-// This is more reliable than using Go's QuerySelector API for complex Google page structures.
-func extractGoogleResults(page playwright.Page, limit int) ([]SearchItem, error) {
-	js := fmt.Sprintf(`() => {
+// extractSearchResults extracts results from the active search provider.
+func extractSearchResults(page playwright.Page, limit int, provider searchProvider) ([]SearchItem, error) {
+	js := buildExtractionScript(provider, limit)
+
+	result, err := page.Evaluate(js)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate JavaScript for %s: %w", provider.displayName(), err)
+	}
+
+	// Convert result to SearchItem slice
+	results, ok := result.([]interface{})
+	if !ok || len(results) == 0 {
+		log.Printf("[search] JavaScript extraction returned 0 results for %s", provider.displayName())
+		return []SearchItem{}, nil
+	}
+
+	var items []SearchItem
+	for _, r := range results {
+		if itemMap, ok := r.(map[string]interface{}); ok {
+			item := SearchItem{
+				Title:   strings.TrimSpace(fmt.Sprintf("%v", itemMap["title"])),
+				URL:     strings.TrimSpace(fmt.Sprintf("%v", itemMap["url"])),
+				Snippet: strings.TrimSpace(fmt.Sprintf("%v", itemMap["snippet"])),
+			}
+			if item.Title != "" && item.URL != "" {
+				items = append(items, item)
+			}
+		}
+	}
+
+	log.Printf("[search] %s extraction returned %d valid results", provider.displayName(), len(items))
+	return items, nil
+}
+
+func buildExtractionScript(provider searchProvider, limit int) string {
+	if provider == searchProviderBing {
+		return fmt.Sprintf(`() => {
+		const results = [];
+
+		const items = document.querySelectorAll('#b_results > li.b_algo');
+		for (let card of items) {
+			const link = card.querySelector('h2 a');
+			if (!link) continue;
+
+			const title = link.textContent?.trim();
+			const url = link.href;
+			if (!title || !url) continue;
+
+			if (url.includes('bing.com') && url.includes('/search')) continue;
+
+			let snippet = '';
+			const snippetNode = card.querySelector('.b_caption p') || card.querySelector('p');
+			if (snippetNode) {
+				const text = snippetNode.textContent?.trim();
+				if (text) {
+					snippet = text;
+				}
+			}
+
+			results.push({
+				title: title,
+				url: url,
+				snippet: snippet
+			});
+
+			if (results.length >= %d) break;
+		}
+
+		return results;
+	}`, limit)
+	}
+
+	return fmt.Sprintf(`() => {
 		const results = [];
 		const h3Elements = document.querySelectorAll('h3');
 
@@ -420,35 +560,6 @@ func extractGoogleResults(page playwright.Page, limit int) ([]SearchItem, error)
 
 		return results;
 	}`, limit)
-
-	result, err := page.Evaluate(js)
-	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate JavaScript: %w", err)
-	}
-
-	// Convert result to SearchItem slice
-	results, ok := result.([]interface{})
-	if !ok || len(results) == 0 {
-		log.Printf("[search] JavaScript extraction returned 0 results")
-		return []SearchItem{}, nil
-	}
-
-	var items []SearchItem
-	for _, r := range results {
-		if itemMap, ok := r.(map[string]interface{}); ok {
-			item := SearchItem{
-				Title:   strings.TrimSpace(fmt.Sprintf("%v", itemMap["title"])),
-				URL:     strings.TrimSpace(fmt.Sprintf("%v", itemMap["url"])),
-				Snippet: strings.TrimSpace(fmt.Sprintf("%v", itemMap["snippet"])),
-			}
-			if item.Title != "" && item.URL != "" {
-				items = append(items, item)
-			}
-		}
-	}
-
-	log.Printf("[search] JavaScript extraction returned %d valid results", len(items))
-	return items, nil
 }
 
 // fetchPageContentsParallel fetches page contents in parallel for better snippets.
@@ -632,11 +743,6 @@ func normalizeSnippet(snippet string) string {
 		}
 	}
 	return strings.ToLower(clean)
-}
-
-func normalizeProvider(raw string) (provider string, label string) {
-	// Now we only support playwright/google
-	return "google", "google"
 }
 
 func truncateForLog(text string, max int) string {

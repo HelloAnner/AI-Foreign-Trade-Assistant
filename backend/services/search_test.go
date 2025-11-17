@@ -2,12 +2,56 @@ package services
 
 import (
 	"context"
+	"errors"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/anner/ai-foreign-trade-assistant/backend/store"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestDetectSearchProviderPrefersGoogle(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusNoContent,
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		}),
+	}
+
+	provider, err := detectSearchProvider(client)
+	if err != nil {
+		t.Fatalf("expected no error when Google probe succeeds: %v", err)
+	}
+	if provider != searchProviderGoogle {
+		t.Fatalf("expected google provider, got %s", provider)
+	}
+}
+
+func TestDetectSearchProviderFallsBackToBing(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("network blocked")
+		}),
+	}
+
+	provider, err := detectSearchProvider(client)
+	if err == nil {
+		t.Fatal("expected error when Google probe fails")
+	}
+	if provider != searchProviderBing {
+		t.Fatalf("expected bing provider, got %s", provider)
+	}
+}
 
 func TestSearchPlanSpecBuilders(t *testing.T) {
 	company := "环球贸易有限公司"

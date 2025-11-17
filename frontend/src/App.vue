@@ -1,6 +1,9 @@
 <template>
   <div class="app-shell">
-    <RouterView />
+    <div class="app-content">
+      <RouterView />
+    </div>
+    <AppFooter />
     <transition-group name="toast" tag="div" class="toast-stack">
       <div
         v-for="toast in toasts"
@@ -17,6 +20,7 @@
 <script setup>
 import { storeToRefs } from 'pinia'
 import { useUiStore } from './stores/ui'
+import AppFooter from './components/AppFooter.vue'
 
 const uiStore = useUiStore()
 const { toasts } = storeToRefs(uiStore)
@@ -25,6 +29,12 @@ const { toasts } = storeToRefs(uiStore)
 <style scoped>
 .app-shell {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-content {
+  flex: 1 0 auto;
 }
 
 .toast-stack {

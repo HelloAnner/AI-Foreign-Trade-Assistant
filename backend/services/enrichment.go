@@ -46,6 +46,7 @@ var aggregatorDomainSuffixes = []string{
 	"wiki",
 	"wikipedia.org",
 	"google.com",
+	"bing.com",
 }
 
 // NewEnrichmentService creates a new enrichment service instance.
