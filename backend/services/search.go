@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +20,9 @@ const (
 	defaultSearchTimeout    = 25 * time.Second
 	googleConnectivityProbe = "https://www.google.com/generate_204"
 )
+
+// pingGoogleFunc is a tiny seam for tests to stub the ICMP check.
+var pingGoogleFunc = pingGoogle
 
 type searchProvider string
 
@@ -41,6 +46,15 @@ func (p searchProvider) logLabel() string {
 		return "Bing 搜索"
 	default:
 		return "谷歌搜索"
+	}
+}
+
+func (p searchProvider) modeDescription() string {
+	switch p {
+	case searchProviderBing:
+		return "Bing 国际版搜索 + JS 解析模式"
+	default:
+		return "谷歌搜索 + JS 解析模式"
 	}
 }
 
@@ -184,7 +198,7 @@ func NewSearchClient(st *store.Store, httpClient *http.Client) *SearchClient {
 	} else {
 		log.Printf("[search] Google 连通性检测通过，使用谷歌搜索")
 	}
-	log.Printf("[search] 当前使用 %s", provider.logLabel())
+	log.Printf("[search] 启动搜索模式：%s", provider.modeDescription())
 	return &SearchClient{
 		store:    st,
 		provider: provider,
@@ -192,10 +206,15 @@ func NewSearchClient(st *store.Store, httpClient *http.Client) *SearchClient {
 }
 
 func detectSearchProvider(httpClient *http.Client) (searchProvider, error) {
+	// Step 1: attempt ICMP ping for quick connectivity signal.
+	if err := pingGoogleFunc(); err == nil {
+		return searchProviderGoogle, nil
+	}
+	log.Printf("[search] google.com ping 失败，尝试 HTTP 探测")
+
+	// Step 2: HTTP probe as a fallback to reduce false negatives.
 	if httpClient == nil {
-		httpClient = &http.Client{
-			Timeout: 5 * time.Second,
-		}
+		httpClient = &http.Client{Timeout: 5 * time.Second}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -216,6 +235,28 @@ func detectSearchProvider(httpClient *http.Client) (searchProvider, error) {
 		return searchProviderGoogle, nil
 	}
 	return searchProviderBing, fmt.Errorf("probe returned status %d", resp.StatusCode)
+}
+
+func pingGoogle() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+
+	args := []string{"-c", "1", "-W", "2", "google.com"}
+	switch runtime.GOOS {
+	case "windows":
+		args = []string{"-n", "1", "-w", "2000", "google.com"}
+	case "darwin":
+		args = []string{"-c", "1", "-W", "2000", "google.com"}
+	}
+
+	cmd := exec.CommandContext(ctx, "ping", args...)
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
+	}
+	return nil
 }
 
 // ExecutePlan runs the predefined parallel search plan using Playwright.

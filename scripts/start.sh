@@ -1,113 +1,97 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# AI 外贸客户开发助手 - 开发环境启动脚本
-# 用于在开发期间验证驱动加载，模拟真实启动环境
+SCRIPT_DIR="$(cd -- "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+cd "$PROJECT_ROOT"
 
-echo "================================================"
-echo "   AI 外贸客户开发助手 - 开发环境启动脚本"
-echo "================================================"
+APP_NAME="ai-foreign-trade-assistant"
+IMAGE_NAME="${APP_NAME}:latest"
+CONTAINER_NAME="${APP_NAME}-runner"
+HOST_PORT="${APP_PORT:-25000}"
+HOST_HOME="${HOST_HOME_OVERRIDE:-$HOME}"
+DATA_DIR="${FOREIGN_TRADE_DATA_DIR:-$HOST_HOME/.foreign_trade}"
+CONTAINER_DATA_ROOT="/data/.foreign_trade"
+HEALTH_URL="http://127.0.0.1:${HOST_PORT}/api/health"
 
-# 设置当前目录为项目根目录
-cd "$(dirname "$0")/.."
-PROJECT_ROOT="$(pwd)"
-
-# 检查并安装 Playwright 环境
-if [ ! -d "bin/playwright" ] || [ ! -d "bin/playwright/playwright-driver" ]; then
-    echo "检测到缺少 Playwright 环境，正在自动安装..."
-
-    # 创建目录结构
-    mkdir -p bin/playwright
-    cd bin/playwright
-
-    # 下载并安装 Node.js
-    echo "安装 Node.js..."
-    if [[ "$(uname)" == "Darwin" ]]; then
-        if [[ "$(uname -m)" == "arm64" ]]; then
-            curl -L https://nodejs.org/dist/v20.11.0/node-v20.11.0-darwin-arm64.tar.gz | tar xz
-            mv node-v20.11.0-darwin-arm64 node
-        else
-            curl -L https://nodejs.org/dist/v20.11.0/node-v20.11.0-darwin-x64.tar.gz | tar xz
-            mv node-v20.11.0-darwin-x64 node
-        fi
-    else
-        echo "错误: 不支持的操作系统 $(uname)"
-        exit 1
-    fi
-
-    # 安装 Playwright NPM 包
-    echo "安装 Playwright NPM 包..."
-    cat > package.json << 'EOF'
-{
-  "name": "playwright",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+log() {
+  printf '[start] %s\n' "$*"
 }
-EOF
 
-    ./node/bin/npm install playwright@1.49.1
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    log "缺少依赖: $1"
+    exit 1
+  fi
+}
 
-    # 安装浏览器二进制文件
-    echo "安装浏览器二进制文件..."
-    ./node/bin/npx playwright install
+require_cmd docker
+require_cmd curl
 
-    cd "$PROJECT_ROOT"
-    echo "Playwright 环境安装完成！"
+DOCKER=(docker)
+if [ -n "${DOCKER_CONTEXT:-}" ]; then
+  log "使用 docker context: ${DOCKER_CONTEXT}"
+  DOCKER=(docker --context "$DOCKER_CONTEXT")
 fi
 
-# 使用 playwright-go 内置安装机制来确保驱动版本兼容性
-if [ ! -d "bin/playwright/playwright-driver/package" ] || [ ! -f "bin/playwright/playwright-driver/package/package.json" ] || [ ! -f "bin/playwright/playwright-driver/package/index.js" ]; then
-    echo "使用 playwright-go 内置机制安装驱动..."
-    cd backend
-    go run -tags playwright ../scripts/install-playwright-driver.go
-    cd "$PROJECT_ROOT"
-    echo "Playwright 驱动安装完成！"
+if ! "${DOCKER[@]}" info >/dev/null 2>&1; then
+  log "Docker 守护进程未运行，请先启动 Docker"
+  exit 1
 fi
 
-# 创建 playwright-go 缓存目录的符号链接，确保 playwright-go 能找到驱动
-PLAYWRIGHT_GO_CACHE_DIR="$HOME/Library/Caches/ms-playwright-go/1.49.1"
-if [ -d "$PLAYWRIGHT_GO_CACHE_DIR" ]; then
-    echo "创建 playwright-go 缓存符号链接..."
-    rm -rf "$PLAYWRIGHT_GO_CACHE_DIR/package"
-    ln -s "$PROJECT_ROOT/bin/playwright/playwright-driver" "$PLAYWRIGHT_GO_CACHE_DIR/package"
-    echo "符号链接创建完成: $PLAYWRIGHT_GO_CACHE_DIR/package -> $PROJECT_ROOT/bin/playwright/playwright-driver"
-fi
+cleanup_stack() {
+  if "${DOCKER[@]}" ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    log "停止已有容器 ${CONTAINER_NAME}"
+    "${DOCKER[@]}" stop "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+    "${DOCKER[@]}" rm "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+  fi
 
-# 设置 Playwright 环境变量 (使用绝对路径)
-export PLAYWRIGHT_NODE_HOME="$PROJECT_ROOT/bin/playwright/node"
-export PLAYWRIGHT_BROWSERS_PATH="$PROJECT_ROOT/bin/playwright/browsers"
-export PLAYWRIGHT_DRIVER_PATH="$PROJECT_ROOT/bin/playwright/playwright-driver"
+  if "${DOCKER[@]}" image inspect "${IMAGE_NAME}" >/dev/null 2>&1; then
+    log "删除旧镜像 ${IMAGE_NAME}"
+    "${DOCKER[@]}" image rm -f "${IMAGE_NAME}" >/dev/null 2>&1 || true
+  fi
+}
 
-# 强制使用自定义驱动路径，禁用系统缓存
-export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
-export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+build_image() {
+  log "构建 ${IMAGE_NAME} 镜像..."
+  "${DOCKER[@]}" build -t "$IMAGE_NAME" .
+}
 
-# 添加 node 到 PATH
-export PATH="$PLAYWRIGHT_NODE_HOME/bin:$PATH"
+start_container() {
+  log "启动容器 ${CONTAINER_NAME}..."
+  mkdir -p "$DATA_DIR"
+  "${DOCKER[@]}" run -d \
+    --name "$CONTAINER_NAME" \
+    --restart unless-stopped \
+    -p "${HOST_PORT}:7860" \
+    -v "$DATA_DIR:${CONTAINER_DATA_ROOT}" \
+    -e TZ="${TZ:-Asia/Shanghai}" \
+    "$IMAGE_NAME"
+}
 
-echo "正在启动 AI 外贸客户开发助手..."
-echo "Playwright 驱动路径: $PLAYWRIGHT_DRIVER_PATH"
-echo "浏览器路径: $PLAYWRIGHT_BROWSERS_PATH"
-echo
+wait_for_health() {
+  log "等待服务健康就绪..."
+  local retries=60
+  local delay=2
+  for ((i=1; i<=retries; i++)); do
+    if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
+      log "服务健康检查通过"
+      return 0
+    fi
+    sleep "$delay"
+  done
+  log "健康检查超时，打印容器日志"
+  "${DOCKER[@]}" logs "$CONTAINER_NAME"
+  exit 1
+}
 
-# 编译并运行Go程序
-echo "编译并启动应用程序..."
-cd backend
-PLAYWRIGHT_DRIVER_PATH="$PLAYWRIGHT_DRIVER_PATH" \
-PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH" \
-PLAYWRIGHT_NODE_HOME="$PLAYWRIGHT_NODE_HOME" \
-PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true \
-PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-go run -tags playwright main.go "$@"
+main() {
+  cleanup_stack
+  build_image
+  CONTAINER_ID=$(start_container)
+  log "容器 ID: $CONTAINER_ID"
+  wait_for_health
+  log "🎉 部署完成，可访问 http://127.0.0.1:${HOST_PORT}"
+}
 
-# 如果程序退出，显示退出代码
-if [ $? -ne 0 ]; then
-    echo
-    echo "程序异常退出，请检查日志文件"
-fi
+main "$@"

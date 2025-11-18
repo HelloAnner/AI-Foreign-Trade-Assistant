@@ -19,6 +19,9 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestDetectSearchProviderPrefersGoogle(t *testing.T) {
+	defer func(prev func() error) { pingGoogleFunc = prev }(pingGoogleFunc)
+	pingGoogleFunc = func() error { return nil }
+
 	client := &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
@@ -38,6 +41,9 @@ func TestDetectSearchProviderPrefersGoogle(t *testing.T) {
 }
 
 func TestDetectSearchProviderFallsBackToBing(t *testing.T) {
+	defer func(prev func() error) { pingGoogleFunc = prev }(pingGoogleFunc)
+	pingGoogleFunc = func() error { return errors.New("icmp blocked") }
+
 	client := &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return nil, errors.New("network blocked")
@@ -282,7 +288,7 @@ func testCompanyWebsite(t *testing.T, ctx context.Context, client *SearchClient,
 	for _, item := range combined {
 		// Check for exact URL match or domain match
 		if strings.Contains(item.URL, strings.TrimPrefix(expectedWebsite, "https://")) ||
-			 (len(expectedWebsite) > 8 && strings.Contains(item.URL, expectedWebsite[8:])) {
+			(len(expectedWebsite) > 8 && strings.Contains(item.URL, expectedWebsite[8:])) {
 			t.Logf("  ✓ Found correct website for %s: %s", companyName, item.URL)
 			return true
 		}
