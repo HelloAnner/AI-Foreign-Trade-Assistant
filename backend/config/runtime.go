@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -15,7 +17,25 @@ const (
 	CacheDirName     = "cache"
 	ExportsDirName   = "exports"
 	DefaultHTTPAddr  = "0.0.0.0:7860"
+	httpAddrEnvKey   = "APP_HTTP_ADDR"
+	httpPortEnvKey   = "APP_PORT"
 )
+
+// HTTPAddr 返回 HTTP 服务应绑定的地址，优先读取环境变量。
+func HTTPAddr() string {
+	if addr := strings.TrimSpace(os.Getenv(httpAddrEnvKey)); addr != "" {
+		return addr
+	}
+
+	if port := strings.TrimSpace(os.Getenv(httpPortEnvKey)); port != "" {
+		trimmed := strings.TrimPrefix(port, ":")
+		if _, err := strconv.Atoi(trimmed); err == nil {
+			return fmt.Sprintf("0.0.0.0:%s", trimmed)
+		}
+	}
+
+	return DefaultHTTPAddr
+}
 
 // Paths keeps resolved filesystem locations the app relies on.
 type Paths struct {

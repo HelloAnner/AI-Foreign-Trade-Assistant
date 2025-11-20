@@ -8,10 +8,22 @@ cd "$PROJECT_ROOT"
 APP_NAME="ai-foreign-trade-assistant"
 IMAGE_NAME="${APP_NAME}:latest"
 CONTAINER_NAME="${APP_NAME}-runner"
-HOST_PORT="${APP_PORT:-25000}"
 HOST_HOME="${HOST_HOME_OVERRIDE:-$HOME}"
 DATA_DIR="${FOREIGN_TRADE_DATA_DIR:-$HOST_HOME/.foreign_trade}"
 CONTAINER_DATA_ROOT="/data/.foreign_trade"
+DEFAULT_HTTP_PORT=7860
+
+if [ -n "${APP_HTTP_ADDR:-}" ]; then
+  case "$APP_HTTP_ADDR" in
+    *:*) HOST_PORT="${APP_HTTP_ADDR##*:}" ;;
+    *) HOST_PORT="$DEFAULT_HTTP_PORT" ;;
+  esac
+elif [ -n "${APP_PORT:-}" ]; then
+  HOST_PORT="$APP_PORT"
+else
+  HOST_PORT="$DEFAULT_HTTP_PORT"
+fi
+
 HEALTH_URL="http://127.0.0.1:${HOST_PORT}/api/health"
 
 log() {
@@ -60,12 +72,19 @@ build_image() {
 start_container() {
   log "启动容器 ${CONTAINER_NAME}..."
   mkdir -p "$DATA_DIR"
+  local docker_env=(-e "TZ=${TZ:-Asia/Shanghai}")
+  if [ -n "${APP_PORT:-}" ]; then
+    docker_env+=(-e "APP_PORT=${APP_PORT}")
+  fi
+  if [ -n "${APP_HTTP_ADDR:-}" ]; then
+    docker_env+=(-e "APP_HTTP_ADDR=${APP_HTTP_ADDR}")
+  fi
   "${DOCKER[@]}" run -d \
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
-    -p "${HOST_PORT}:7860" \
+    --network host \
     -v "$DATA_DIR:${CONTAINER_DATA_ROOT}" \
-    -e TZ="${TZ:-Asia/Shanghai}" \
+    "${docker_env[@]}" \
     "$IMAGE_NAME"
 }
 

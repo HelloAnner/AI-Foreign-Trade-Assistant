@@ -137,7 +137,7 @@ func run(ctx context.Context) error {
 	mux.Handle("/", spaHandler(staticContent))
 
 	server := &http.Server{
-		Addr:              appconfig.DefaultHTTPAddr,
+		Addr:              appconfig.HTTPAddr(),
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
