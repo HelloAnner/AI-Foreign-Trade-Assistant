@@ -15,6 +15,7 @@ const defaultState = () => ({
     smtp_port: 465,
     smtp_username: '',
     smtp_password: '',
+    smtp_security: 'auto',
     admin_email: '',
     rating_guideline: '',
     automation_enabled: false,

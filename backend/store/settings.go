@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // Settings represents the persisted global configuration.
@@ -18,6 +19,7 @@ type Settings struct {
 	SMTPPort                int    `json:"smtp_port"`
 	SMTPUsername            string `json:"smtp_username"`
 	SMTPPassword            string `json:"smtp_password"`
+	SMTPSecurity            string `json:"smtp_security"`
 	AdminEmail              string `json:"admin_email"`
 	RatingGuideline         string `json:"rating_guideline"`
 	AutomationEnabled       bool   `json:"automation_enabled"`
@@ -38,6 +40,7 @@ func (s *Store) GetSettings(ctx context.Context) (*Settings, error) {
 	  COALESCE(smtp_port, 0),
 	  COALESCE(smtp_username, ''),
 	  COALESCE(smtp_password, ''),
+	  COALESCE(smtp_security, 'auto'),
 	  COALESCE(admin_email, ''),
 	  COALESCE(rating_guideline, ''),
 	  COALESCE(automation_enabled, 0),
@@ -57,6 +60,7 @@ func (s *Store) GetSettings(ctx context.Context) (*Settings, error) {
 		&settings.SMTPPort,
 		&settings.SMTPUsername,
 		&settings.SMTPPassword,
+		&settings.SMTPSecurity,
 		&settings.AdminEmail,
 		&settings.RatingGuideline,
 		&automationEnabledInt,
@@ -71,6 +75,9 @@ func (s *Store) GetSettings(ctx context.Context) (*Settings, error) {
 	if settings.AutomationFollowupDays <= 0 {
 		settings.AutomationFollowupDays = 3
 	}
+	if strings.TrimSpace(settings.SMTPSecurity) == "" {
+		settings.SMTPSecurity = "auto"
+	}
 	return &settings, nil
 }
 
@@ -83,12 +90,17 @@ func (s *Store) SaveSettings(ctx context.Context, body io.Reader) error {
 	if payload.AutomationFollowupDays <= 0 {
 		payload.AutomationFollowupDays = 3
 	}
+	payload.SMTPSecurity = strings.TrimSpace(payload.SMTPSecurity)
+	if payload.SMTPSecurity == "" {
+		payload.SMTPSecurity = "auto"
+	}
 
 	_, err := s.DB.ExecContext(ctx, `
 		UPDATE settings
 		SET llm_base_url = ?, llm_api_key = ?, llm_model = ?,
 		    my_company_name = ?, my_product_profile = ?,
 		    smtp_host = ?, smtp_port = ?, smtp_username = ?, smtp_password = ?,
+		    smtp_security = ?,
 		    admin_email = ?, rating_guideline = ?,
 		    automation_enabled = ?, automation_followup_days = ?, automation_required_grade = ?,
 		    updated_at = datetime('now')
@@ -103,6 +115,7 @@ func (s *Store) SaveSettings(ctx context.Context, body io.Reader) error {
 		payload.SMTPPort,
 		payload.SMTPUsername,
 		payload.SMTPPassword,
+		payload.SMTPSecurity,
 		payload.AdminEmail,
 		payload.RatingGuideline,
 		boolToInt(payload.AutomationEnabled),

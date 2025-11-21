@@ -2,9 +2,12 @@ package services
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"html/template"
+	"log"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -63,6 +66,7 @@ Thank you for your continued trust and cooperation.`
 	}
 
 	dialer := gomail.NewDialer(inputs.host, inputs.port, inputs.username, inputs.password)
+	applyDialerSecurity(dialer, inputs)
 
 	done := make(chan error, 1)
 	go func() {
@@ -74,6 +78,7 @@ Thank you for your continued trust and cooperation.`
 		return ctx.Err()
 	case err := <-done:
 		if err != nil {
+			logSMTPError("send_test", inputs, err)
 			return fmt.Errorf("发送测试邮件失败: %w", err)
 		}
 	}
@@ -121,6 +126,7 @@ func (m *SMTPMailer) Send(ctx context.Context, to []string, subject, body string
 	}
 
 	dialer := gomail.NewDialer(inputs.host, inputs.port, inputs.username, inputs.password)
+	applyDialerSecurity(dialer, inputs)
 
 	done := make(chan error, 1)
 	go func() {
@@ -132,6 +138,7 @@ func (m *SMTPMailer) Send(ctx context.Context, to []string, subject, body string
 		return "", ctx.Err()
 	case err := <-done:
 		if err != nil {
+			logSMTPError("send", inputs, err)
 			return "", fmt.Errorf("发送邮件失败: %w", err)
 		}
 	}
@@ -180,6 +187,9 @@ func mergeSMTPOverrides(base *store.Settings, overrides *store.Settings) *store.
 	if admin := strings.TrimSpace(overrides.AdminEmail); admin != "" {
 		base.AdminEmail = admin
 	}
+	if sec := strings.TrimSpace(overrides.SMTPSecurity); sec != "" {
+		base.SMTPSecurity = sec
+	}
 	return base
 }
 
@@ -189,6 +199,7 @@ type smtpInputs struct {
 	username string
 	password string
 	admin    string
+	security string
 }
 
 func buildSMTPInputs(settings *store.Settings, requireAdmin bool) (*smtpInputs, error) {
@@ -200,13 +211,14 @@ func buildSMTPInputs(settings *store.Settings, requireAdmin bool) (*smtpInputs, 
 	password := strings.TrimSpace(settings.SMTPPassword)
 	admin := strings.TrimSpace(settings.AdminEmail)
 	port := settings.SMTPPort
+	security := strings.ToLower(strings.TrimSpace(settings.SMTPSecurity))
 
 	var missing []string
 	if host == "" {
 		missing = append(missing, "SMTP 主机")
 	}
 	if port <= 0 {
-		missing = append(missing, "SMTP 端口")
+		port = defaultSMTPPort(security)
 	}
 	if username == "" {
 		missing = append(missing, "SMTP 账号")
@@ -222,13 +234,82 @@ func buildSMTPInputs(settings *store.Settings, requireAdmin bool) (*smtpInputs, 
 		return nil, fmt.Errorf("SMTP 配置缺失：%s", strings.Join(missing, "、"))
 	}
 
+	switch security {
+	case "ssl", "tls":
+	default:
+		if port == 465 {
+			security = "ssl"
+		} else {
+			security = "tls"
+		}
+	}
+
 	return &smtpInputs{
 		host:     host,
 		port:     port,
 		username: username,
 		password: password,
 		admin:    admin,
+		security: security,
 	}, nil
+}
+
+func applyDialerSecurity(dialer *gomail.Dialer, inputs *smtpInputs) {
+	if dialer == nil || inputs == nil {
+		return
+	}
+	switch inputs.security {
+	case "ssl":
+		dialer.SSL = true
+		dialer.TLSConfig = tlsConfigForHost(inputs.host)
+	case "tls":
+		dialer.SSL = false
+		dialer.TLSConfig = tlsConfigForHost(inputs.host)
+	default:
+		dialer.SSL = inputs.port == 465
+		if !dialer.SSL {
+			dialer.TLSConfig = tlsConfigForHost(inputs.host)
+		}
+	}
+}
+
+func tlsConfigForHost(host string) *tls.Config {
+	if host == "" {
+		return &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	return &tls.Config{
+		ServerName: host,
+		MinVersion: tls.VersionTLS12,
+	}
+}
+
+func defaultSMTPPort(security string) int {
+	switch security {
+	case "ssl":
+		return 465
+	case "tls":
+		return 587
+	default:
+		return 587
+	}
+}
+
+func logSMTPError(action string, inputs *smtpInputs, err error) {
+	if err == nil {
+		return
+	}
+	host := ""
+	port := 0
+	username := ""
+	security := ""
+	if inputs != nil {
+		host = inputs.host
+		port = inputs.port
+		username = inputs.username
+		security = inputs.security
+	}
+	stack := debug.Stack()
+	log.Printf("[smtp] action=%s host=%s port=%d username=%s security=%s error=%v\n%s", action, host, port, username, security, err, stack)
 }
 
 func composeEmailBodies(subject, body string, settings *store.Settings) (string, string) {

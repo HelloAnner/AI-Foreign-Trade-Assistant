@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +33,7 @@ type Response struct {
 type Handlers struct {
 	Store         *store.Store
 	ServiceBundle *services.Bundle
+	Auth          *AuthManager
 }
 
 // Health exposes a simple liveness probe.
@@ -42,6 +45,55 @@ func (h *Handlers) Health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, Response{OK: true, Data: map[string]string{"status": "ok"}})
 }
 
+// Login 处理前端登录请求。
+func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
+	if h == nil || h.Auth == nil {
+		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: "鉴权模块未就绪"})
+		return
+	}
+	var payload struct {
+		Cipher string `json:"cipher"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: "请求体格式错误"})
+		return
+	}
+	token, expiresAt, err := h.Auth.IssueToken(payload.Cipher)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, Response{OK: false, Error: err.Error()})
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     tokenCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   int(time.Until(expiresAt).Seconds()),
+		SameSite: http.SameSiteLaxMode,
+	})
+	writeJSON(w, http.StatusOK, Response{
+		OK: true,
+		Data: map[string]interface{}{
+			"token":      token,
+			"expires_at": expiresAt.UTC().Format(time.RFC3339),
+		},
+	})
+}
+
+// PublicKey 返回 RSA 公钥。
+func (h *Handlers) PublicKey(w http.ResponseWriter, r *http.Request) {
+	if h == nil || h.Auth == nil {
+		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: "鉴权模块未就绪"})
+		return
+	}
+	info := h.Auth.PublicKey()
+	if info == nil {
+		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: "公钥不可用"})
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: info})
+}
+
 // GetSettings returns persisted settings.
 func (h *Handlers) GetSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := h.Store.GetSettings(r.Context())
@@ -49,7 +101,7 @@ func (h *Handlers) GetSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, Response{OK: true, Data: settings})
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: sanitizeSettings(h.Auth, settings)})
 }
 
 // ListCustomers returns the customer summaries for management UI.
@@ -138,7 +190,23 @@ func (h *Handlers) UpdateFollowupStatus(w http.ResponseWriter, r *http.Request) 
 
 // SaveSettings persists the settings payload.
 func (h *Handlers) SaveSettings(w http.ResponseWriter, r *http.Request) {
-	if err := h.Store.SaveSettings(r.Context(), r.Body); err != nil {
+	defer r.Body.Close()
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: fmt.Sprintf("读取请求失败: %v", err)})
+		return
+	}
+	payload := bytes.TrimSpace(raw)
+	if len(payload) == 0 {
+		payload = raw
+	}
+	if h.Auth != nil && len(payload) > 0 {
+		if payload, err = h.Auth.DecryptJSONFields(payload, nil); err != nil {
+			writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+			return
+		}
+	}
+	if err := h.Store.SaveSettings(r.Context(), bytes.NewReader(payload)); err != nil {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
 		return
 	}
@@ -147,7 +215,7 @@ func (h *Handlers) SaveSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, Response{OK: true})
 		return
 	}
-	writeJSON(w, http.StatusOK, Response{OK: true, Data: settings})
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: sanitizeSettings(h.Auth, settings)})
 }
 
 // TestLLM validates the configured LLM credentials.
@@ -172,6 +240,10 @@ func (h *Handlers) TestSMTP(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			overrides = &payload
+			if err := h.decryptSettingsStruct(overrides); err != nil {
+				writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+				return
+			}
 		}
 	}
 	if err := h.ServiceBundle.Mailer.SendTest(r.Context(), overrides); err != nil {
@@ -662,6 +734,63 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (h *Handlers) decryptSettingsStruct(settings *store.Settings) error {
+	if h == nil || h.Auth == nil || settings == nil {
+		return nil
+	}
+	val := reflect.ValueOf(settings).Elem()
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Field(i)
+		if !field.CanSet() || field.Kind() != reflect.String {
+			continue
+		}
+		raw := field.String()
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		plain, err := h.Auth.DecryptField(raw)
+		if err != nil {
+			return fmt.Errorf("敏感字段解密失败: %w", err)
+		}
+		if plain != raw {
+			field.SetString(plain)
+		}
+	}
+	return nil
+}
+
+func sanitizeSettings(auth *AuthManager, settings *store.Settings) *store.Settings {
+	if settings == nil {
+		return nil
+	}
+	sanitized := *settings
+	val := reflect.ValueOf(&sanitized).Elem()
+	typ := val.Type()
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Field(i)
+		if field.Kind() != reflect.String {
+			continue
+		}
+		name := strings.ToLower(typ.Field(i).Name)
+		if !strings.Contains(name, "password") && !strings.Contains(name, "key") && !strings.Contains(name, "secret") && !strings.Contains(name, "token") {
+			continue
+		}
+		raw := field.String()
+		if strings.TrimSpace(raw) == "" || auth == nil {
+			field.SetString("")
+			continue
+		}
+		enc, err := auth.EncryptField(raw)
+		if err != nil {
+			log.Printf("sanitize settings: encrypt %s failed: %v", name, err)
+			field.SetString("")
+			continue
+		}
+		field.SetString(enc)
+	}
+	return &sanitized
 }
 
 func decodeJSON(r *http.Request, v interface{}) error {

@@ -122,9 +122,20 @@ func run(ctx context.Context) error {
 		defer automationRunner.Stop()
 	}
 
+	authManager, err := api.NewAuthManager(api.AuthConfig{
+		Password:      os.Getenv("FTA_LOGIN_PASSWORD"),
+		EncryptionKey: os.Getenv("FTA_ENCRYPTION_KEY"),
+		JWTSecret:     os.Getenv("FTA_JWT_SECRET"),
+		TokenTTL:      14 * 24 * time.Hour,
+	})
+	if err != nil {
+		return err
+	}
+
 	handlers := &api.Handlers{
 		Store:         dataStore,
 		ServiceBundle: bundle,
+		Auth:          authManager,
 	}
 
 	staticContent, err := fs.Sub(staticFS, "static")

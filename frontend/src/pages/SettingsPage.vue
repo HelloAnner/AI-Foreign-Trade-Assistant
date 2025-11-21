@@ -72,6 +72,15 @@
             <input v-model.number="local.smtp_port" type="number" placeholder="465" />
           </label>
           <label>
+            <span>加密方式</span>
+            <select v-model="local.smtp_security">
+              <option value="auto">自动匹配（按端口）</option>
+              <option value="ssl">SSL / SMTPS（端口 465）</option>
+              <option value="tls">TLS / STARTTLS（端口 587）</option>
+            </select>
+            <small class="field-hint">端口 465 通常配合 SSL，端口 587 通常配合 TLS/STARTTLS。</small>
+          </label>
+          <label>
             <span>邮箱账号</span>
             <input v-model="local.smtp_username" type="text" placeholder="your@email.com" />
           </label>
@@ -177,6 +186,7 @@ const local = reactive({
   smtp_port: 465,
   smtp_username: '',
   smtp_password: '',
+  smtp_security: 'auto',
   admin_email: '',
   rating_guideline: '',
   automation_enabled: false,
@@ -284,6 +294,13 @@ const handleTestSearch = async () => {
   margin: 6px 0 0;
   font-size: 14px;
   color: var(--text-secondary);
+}
+
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 .grid {

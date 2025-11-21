@@ -79,6 +79,7 @@ start_container() {
   if [ -n "${APP_HTTP_ADDR:-}" ]; then
     docker_env+=(-e "APP_HTTP_ADDR=${APP_HTTP_ADDR}")
   fi
+  docker_env+=(-e "FTA_DATA_DIR=${CONTAINER_DATA_ROOT}")
   "${DOCKER[@]}" run -d \
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
@@ -88,28 +89,11 @@ start_container() {
     "$IMAGE_NAME"
 }
 
-wait_for_health() {
-  log "等待服务健康就绪..."
-  local retries=60
-  local delay=2
-  for ((i=1; i<=retries; i++)); do
-    if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
-      log "服务健康检查通过"
-      return 0
-    fi
-    sleep "$delay"
-  done
-  log "健康检查超时，打印容器日志"
-  "${DOCKER[@]}" logs "$CONTAINER_NAME"
-  exit 1
-}
-
 main() {
   cleanup_stack
   build_image
   CONTAINER_ID=$(start_container)
   log "容器 ID: $CONTAINER_ID"
-  wait_for_health
   log "🎉 部署完成，可访问 http://127.0.0.1:${HOST_PORT}"
 }
 

@@ -19,6 +19,7 @@ const (
 	DefaultHTTPAddr  = "0.0.0.0:25000"
 	httpAddrEnvKey   = "APP_HTTP_ADDR"
 	httpPortEnvKey   = "APP_PORT"
+	dataDirEnvKey    = "FTA_DATA_DIR"
 )
 
 // HTTPAddr 返回 HTTP 服务应绑定的地址，优先读取环境变量。
@@ -49,10 +50,20 @@ type Paths struct {
 
 // ResolvePaths builds the set of directories under the configured base.
 func ResolvePaths(homeDir string) (*Paths, error) {
+	if customRoot := strings.TrimSpace(os.Getenv(dataDirEnvKey)); customRoot != "" {
+		return buildPaths(filepath.Clean(customRoot))
+	}
 	if homeDir == "" {
 		return nil, fmt.Errorf("empty home directory")
 	}
 	root := filepath.Join(homeDir, AppDirName)
+	return buildPaths(root)
+}
+
+func buildPaths(root string) (*Paths, error) {
+	if root == "" {
+		return nil, fmt.Errorf("empty root path")
+	}
 	return &Paths{
 		RootDir:    root,
 		ConfigFile: filepath.Join(root, ConfigFileName),

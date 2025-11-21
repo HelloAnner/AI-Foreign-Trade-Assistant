@@ -22,6 +22,26 @@ Step 5：自动保存跟进记录 + 设置提醒；
 
 用户完成一步后，结果会展示在下方, 实现自动翻页，并自动解锁下一步操作。
 
+### 4. 安全访问控制（2025-11-21 全量方案）
+
+- **访问入口**：新增 `/login` 登录页（风格与主流程一致），所有前端路由在进入前都会检查 JWT。缺少或过期 token 时，路由守卫与 Axios 拦截器都会立即跳转到登录页。
+- **默认口令**：初始管理员口令固定为 `foreign_123_login`，可用 `FTA_LOGIN_PASSWORD` 覆盖；强烈建议首次部署后立即修改。
+- **RSA 加密链路**：
+  - 后端启动时动态生成 2048 位 RSA 密钥对，仅在内存中保存私钥，并通过 `GET /api/auth/public-key` 暴露 PEM 格式公钥（返回 `kid`、算法、生成时间），前端在运行期实时拉取，不再在 bundle 中硬编码任何密钥，“浏览器看不到密钥注入”。
+  - 登录口令、LLM API Key、DS 密码、邮箱密码等全部敏感字段在前端通过 WebCrypto `RSA-OAEP-256` 加密，统一以 `rsa:` 前缀传输；后端按前缀自动解密后再落库或透传至服务层。
+  - 为兼容旧版本，后端仍支持历史 `enc:` AES-GCM 密文（密钥取自 `FTA_ENCRYPTION_KEY`），但前端已默认使用 RSA；如启用桌面离线版本，请确保 `FTA_ENCRYPTION_KEY` 仍然配置。
+- **令牌策略**：口令校验成功后生成 HS256 JWT（`issuer=ai-foreign-trade-assistant`），默认 14 天有效，通过 `FTA_JWT_SECRET`、`FTA_LOGIN_PASSWORD`、`FTA_JWT_TTL` 可自定义。服务端同步下发 HttpOnly Cookie，前端在 `localStorage` 保存（token + 过期时间）用于 Axios Authorization 头。
+- **鉴权中间件**：`/api/auth/login` 与 `/api/auth/public-key` 之外的接口全部挂载 JWT 中间件，401 时返回统一错误；前端拦截器收到 401 会清空本地 token 并强制跳转 `/login`。
+- **密钥轮转**：若需要强制刷新前端使用的公钥，可重启后端或在运行中调用热更新逻辑（后续版本可扩展），前端在下次调用 `encryptValue` 时会自动重新获取；必要时可通过清除缓存强制刷新。
+- **SMTP 加密**：全局配置新增“加密方式”字段，可在 `SSL（端口 465）` 与 `TLS/STARTTLS（端口 587）` 间切换；后端据此强制 `gomail.Dialer.SSL` 或 STARTTLS，确保各邮箱服务的兼容性。
+
+### 5. 数据目录与日志策略（2025-11-21 更新）
+
+- **数据挂载目录**：默认仍写入 `~/.foreign_trade`，如需在 Docker 中将所有数据库、配置、日志落盘到宿主机，可设置环境变量 `FTA_DATA_DIR=/data/ai-fta` 并把该路径挂载为持久卷（例如 `-v /opt/fta-data:/data/ai-fta`）。
+- **目录结构**：`FTA_DATA_DIR`（或默认 home 目录）下会自动创建 `app.db`、`config.json`、`logs/`、`cache/`、`exports/` 等文件夹，保证“运行期间的日志和数据”统一出现在挂载目录中。
+- **日志落地**：`logs/app.log` 与 STDOUT 同步输出，使用 `rotatelogs` 每天轮转，历史文件自动压缩为 `.log.gz`，满足“日志每日自动压缩”要求。
+- **故障追踪**：SMTP 测试、自动邮件发送等关键路径一旦失败，会把原始错误与完整 `runtime/debug.Stack()` 堆栈写入日志文件，便于定位如“测试邮件失败”类问题；日志中仅包含主机、端口、账号等必要信息，不输出密码。
+
 ---
 
 ### **主界面**

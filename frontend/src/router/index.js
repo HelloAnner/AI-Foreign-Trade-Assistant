@@ -1,15 +1,23 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getToken } from '../utils/auth'
 
 const HomePage = () => import('../pages/HomePage.vue')
 const MainFlow = () => import('../pages/MainFlow.vue')
 const CustomersPage = () => import('../pages/CustomersPage.vue')
 const SettingsPage = () => import('../pages/SettingsPage.vue')
+const LoginPage = () => import('../pages/LoginPage.vue')
 
 const history = createWebHistory(import.meta.env.BASE_URL)
 
 const router = createRouter({
   history,
   routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: LoginPage,
+      meta: { public: true },
+    },
     {
       path: '/',
       name: 'home',
@@ -34,6 +42,23 @@ const router = createRouter({
 })
 
 const LAST_ROUTE_KEY = 'fta:last-route'
+const PUBLIC_ROUTES = new Set(['login'])
+
+router.beforeEach((to, from, next) => {
+  const token = getToken()
+  if (!token && !PUBLIC_ROUTES.has(to.name)) {
+    const redirect = to.fullPath && to.fullPath !== '/' ? { name: 'login', query: { redirect: to.fullPath } } : { name: 'login' }
+    next(redirect)
+    return
+  }
+
+  if (token && to.name === 'login') {
+    const fallback = typeof to.query.redirect === 'string' && to.query.redirect ? to.query.redirect : from.fullPath || '/'
+    next(fallback)
+    return
+  }
+  next()
+})
 
 if (typeof window !== 'undefined') {
   const initialPath = window.location.pathname + window.location.search + window.location.hash
@@ -50,7 +75,9 @@ if (typeof window !== 'undefined') {
   }
 
   router.afterEach((to) => {
-    sessionStorage.setItem(LAST_ROUTE_KEY, to.fullPath || '/')
+    if (!PUBLIC_ROUTES.has(to.name)) {
+      sessionStorage.setItem(LAST_ROUTE_KEY, to.fullPath || '/')
+    }
   })
 }
 

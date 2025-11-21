@@ -208,6 +208,12 @@ func (s *Store) InitSchema(ctx context.Context) error {
 		}
 	}
 
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE settings ADD COLUMN smtp_security TEXT DEFAULT 'auto'`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure smtp_security column: %w", err)
+		}
+	}
+
 	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE scheduled_tasks ADD COLUMN schedule_mode TEXT DEFAULT 'simple'`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column name") {
 			return fmt.Errorf("ensure schedule_mode column: %w", err)
