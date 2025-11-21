@@ -10,6 +10,7 @@ import (
 	"crypto/subtle"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -24,6 +26,7 @@ import (
 
 const (
 	defaultLoginPassword   = "foreign_123_login"
+	DefaultLoginPassword   = defaultLoginPassword
 	defaultEncryptionKey   = "AI_FTA::crypto::v1"
 	defaultIssuer          = "ai-foreign-trade-assistant"
 	encryptedPrefix        = "enc:"
@@ -32,20 +35,51 @@ const (
 	authHeaderBearerPrefix = "bearer "
 )
 
+// HashLoginPassword 将明文口令做 SHA-256，并返回十六进制字符串。
+func HashLoginPassword(plain string) (string, error) {
+	trimmed := strings.TrimSpace(plain)
+	if trimmed == "" {
+		return "", fmt.Errorf("登录口令不能为空")
+	}
+	sum := sha256.Sum256([]byte(trimmed))
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func decodePasswordHash(hashHex string) ([32]byte, error) {
+	var buf [32]byte
+	trimmed := strings.TrimSpace(hashHex)
+	if trimmed == "" {
+		return buf, fmt.Errorf("登录口令哈希缺失")
+	}
+	raw, err := hex.DecodeString(trimmed)
+	if err != nil {
+		return buf, fmt.Errorf("登录口令哈希无效: %w", err)
+	}
+	if len(raw) != len(buf) {
+		return buf, fmt.Errorf("登录口令哈希长度异常")
+	}
+	copy(buf[:], raw)
+	return buf, nil
+}
+
 // AuthConfig 聚合鉴权及加密相关配置。
 type AuthConfig struct {
-	Password      string
-	EncryptionKey string
-	JWTSecret     string
-	TokenTTL      time.Duration
+	PasswordHash    string
+	PasswordVersion int
+	EncryptionKey   string
+	JWTSecret       string
+	TokenTTL        time.Duration
 }
 
 // AuthManager 负责登录校验、Token 生成与敏感数据解密。
 type AuthManager struct {
-	passwordHash [32]byte
-	tokenTTL     time.Duration
-	signerKey    []byte
-	aead         cipher.AEAD
+	passwordHash    [32]byte
+	passwordVersion int
+	tokenTTL        time.Duration
+	signerKey       []byte
+	aead            cipher.AEAD
+
+	mu sync.RWMutex
 
 	privateKey   *rsa.PrivateKey
 	publicKeyPEM string
@@ -61,14 +95,37 @@ type PublicKeyPayload struct {
 	Generated string `json:"generated_at"`
 }
 
+type tokenClaims struct {
+	jwt.RegisteredClaims
+	PasswordVersion int `json:"pwd_version"`
+}
+
 // NewAuthManager 构建鉴权管理器。
 func NewAuthManager(cfg AuthConfig) (*AuthManager, error) {
-	password := strings.TrimSpace(cfg.Password)
-	if password == "" {
-		password = defaultLoginPassword
-		log.Printf("未配置 FTA_LOGIN_PASSWORD，使用默认口令，请尽快通过环境变量覆盖。")
+	version := cfg.PasswordVersion
+	if version <= 0 {
+		version = 1
 	}
-	passwordHash := sha256.Sum256([]byte(password))
+	passwordHash, err := func() ([32]byte, error) {
+		var zero [32]byte
+		hashHex := strings.TrimSpace(cfg.PasswordHash)
+		if hashHex != "" {
+			return decodePasswordHash(hashHex)
+		}
+		fallback := strings.TrimSpace(os.Getenv("FTA_LOGIN_PASSWORD"))
+		if fallback == "" {
+			fallback = defaultLoginPassword
+			log.Printf("未配置 FTA_LOGIN_PASSWORD，使用默认口令，请尽快修改登录口令。")
+		}
+		hashHex, err := HashLoginPassword(fallback)
+		if err != nil {
+			return zero, err
+		}
+		return decodePasswordHash(hashHex)
+	}()
+	if err != nil {
+		return nil, fmt.Errorf("初始化登录口令失败: %w", err)
+	}
 
 	var aead cipher.AEAD
 	encryptionSecret := strings.TrimSpace(cfg.EncryptionKey)
@@ -113,14 +170,15 @@ func NewAuthManager(cfg AuthConfig) (*AuthManager, error) {
 	keyID := fmt.Sprintf("rsa-%x", sum[:4])
 
 	return &AuthManager{
-		passwordHash: passwordHash,
-		tokenTTL:     tokenTTL,
-		signerKey:    signKey[:],
-		aead:         aead,
-		privateKey:   privateKey,
-		publicKeyPEM: string(pemBytes),
-		keyID:        keyID,
-		keyGenerated: time.Now().UTC(),
+		passwordHash:    passwordHash,
+		passwordVersion: version,
+		tokenTTL:        tokenTTL,
+		signerKey:       signKey[:],
+		aead:            aead,
+		privateKey:      privateKey,
+		publicKeyPEM:    string(pemBytes),
+		keyID:           keyID,
+		keyGenerated:    time.Now().UTC(),
 	}, nil
 }
 
@@ -152,18 +210,22 @@ func (a *AuthManager) IssueToken(cipherText string) (string, time.Time, error) {
 		return "", time.Time{}, fmt.Errorf("解密登录口令失败: %w", err)
 	}
 	inputHash := sha256.Sum256([]byte(strings.TrimSpace(plain)))
-	if subtle.ConstantTimeCompare(a.passwordHash[:], inputHash[:]) != 1 {
+	a.mu.RLock()
+	expected := a.passwordHash
+	version := a.passwordVersion
+	a.mu.RUnlock()
+	if subtle.ConstantTimeCompare(expected[:], inputHash[:]) != 1 {
 		return "", time.Time{}, fmt.Errorf("口令不正确")
 	}
-	return a.generateToken()
+	return a.generateToken(version)
 }
 
 // ValidateToken 校验 token 并返回声明。
-func (a *AuthManager) ValidateToken(tokenStr string) (*jwt.RegisteredClaims, error) {
+func (a *AuthManager) ValidateToken(tokenStr string) (*tokenClaims, error) {
 	if a == nil {
 		return nil, fmt.Errorf("鉴权模块未初始化")
 	}
-	claims := &jwt.RegisteredClaims{}
+	claims := &tokenClaims{}
 	_, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("签名算法不匹配")
@@ -172,6 +234,12 @@ func (a *AuthManager) ValidateToken(tokenStr string) (*jwt.RegisteredClaims, err
 	})
 	if err != nil {
 		return nil, err
+	}
+	a.mu.RLock()
+	expectedVersion := a.passwordVersion
+	a.mu.RUnlock()
+	if claims.PasswordVersion != expectedVersion {
+		return nil, fmt.Errorf("登录状态已失效")
 	}
 	return claims, nil
 }
@@ -187,6 +255,25 @@ func (a *AuthManager) PublicKey() *PublicKeyPayload {
 		PublicKey: a.publicKeyPEM,
 		Generated: a.keyGenerated.Format(time.RFC3339),
 	}
+}
+
+// UpdatePassword 在内存中热更新登录口令哈希与版本。
+func (a *AuthManager) UpdatePassword(hashHex string, version int) error {
+	if a == nil {
+		return fmt.Errorf("鉴权模块未初始化")
+	}
+	decoded, err := decodePasswordHash(hashHex)
+	if err != nil {
+		return err
+	}
+	if version <= 0 {
+		version = 1
+	}
+	a.mu.Lock()
+	a.passwordHash = decoded
+	a.passwordVersion = version
+	a.mu.Unlock()
+	return nil
 }
 
 // DecryptField 若字符串带有前缀则进行解密。
@@ -326,16 +413,19 @@ func (a *AuthManager) decryptRSA(payload string) (string, error) {
 	return string(plain), nil
 }
 
-func (a *AuthManager) generateToken() (string, time.Time, error) {
+func (a *AuthManager) generateToken(version int) (string, time.Time, error) {
 	if a == nil {
 		return "", time.Time{}, fmt.Errorf("鉴权模块未初始化")
 	}
 	expiresAt := time.Now().Add(a.tokenTTL)
-	claims := jwt.RegisteredClaims{
-		Issuer:    defaultIssuer,
-		Subject:   "operator",
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
-		ExpiresAt: jwt.NewNumericDate(expiresAt),
+	claims := tokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    defaultIssuer,
+			Subject:   "operator",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+		},
+		PasswordVersion: version,
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, err := token.SignedString(a.signerKey)

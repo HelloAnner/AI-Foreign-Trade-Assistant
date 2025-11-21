@@ -104,6 +104,30 @@ func run(ctx context.Context) error {
 		return err
 	}
 
+	loginHash, loginVersion, err := dataStore.GetLoginPassword(ctx)
+	if err != nil {
+		return err
+	}
+	loginHash = strings.TrimSpace(loginHash)
+	if loginHash == "" {
+		seed := strings.TrimSpace(os.Getenv("FTA_LOGIN_PASSWORD"))
+		if seed == "" {
+			seed = api.DefaultLoginPassword
+			log.Printf("使用默认登录口令，请登录后尽快在设置页修改。")
+		} else {
+			log.Printf("检测到 FTA_LOGIN_PASSWORD，已用作初始登录口令。")
+		}
+		hashHex, err := api.HashLoginPassword(seed)
+		if err != nil {
+			return err
+		}
+		if err := dataStore.UpdateLoginPassword(ctx, hashHex, 1); err != nil {
+			return err
+		}
+		loginHash = hashHex
+		loginVersion = 1
+	}
+
 	bundle := services.NewBundle(services.Options{Store: dataStore})
 
 	runner := task.NewRunner(dataStore, bundle.Scheduler)
@@ -123,10 +147,11 @@ func run(ctx context.Context) error {
 	}
 
 	authManager, err := api.NewAuthManager(api.AuthConfig{
-		Password:      os.Getenv("FTA_LOGIN_PASSWORD"),
-		EncryptionKey: os.Getenv("FTA_ENCRYPTION_KEY"),
-		JWTSecret:     os.Getenv("FTA_JWT_SECRET"),
-		TokenTTL:      14 * 24 * time.Hour,
+		PasswordHash:    loginHash,
+		PasswordVersion: loginVersion,
+		EncryptionKey:   os.Getenv("FTA_ENCRYPTION_KEY"),
+		JWTSecret:       os.Getenv("FTA_JWT_SECRET"),
+		TokenTTL:        14 * 24 * time.Hour,
 	})
 	if err != nil {
 		return err

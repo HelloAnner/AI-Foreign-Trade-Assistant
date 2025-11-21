@@ -91,6 +91,25 @@
         </div>
       </section>
 
+      <section class="card">
+        <header>
+          <div>
+            <h2>访问口令</h2>
+            <p>输入新口令保存后，所有当前登录用户会被强制登出。</p>
+          </div>
+        </header>
+        <label class="full">
+          <span>新的登录口令</span>
+          <input
+            v-model="local.login_password"
+            type="password"
+            autocomplete="new-password"
+            placeholder="至少 8 位，建议混合数字和字母"
+          />
+          <small class="field-hint">为保障安全，系统不会回显当前口令；保存后将立即失效所有 token。</small>
+        </label>
+      </section>
+
       <section class="grid-two">
         <div class="card">
           <header>
@@ -188,6 +207,7 @@ const local = reactive({
   smtp_password: '',
   smtp_security: 'auto',
   admin_email: '',
+  login_password: '',
   rating_guideline: '',
   automation_enabled: false,
   automation_followup_days: 3,

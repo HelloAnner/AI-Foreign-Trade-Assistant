@@ -206,6 +206,19 @@ func (h *Handlers) SaveSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var incoming store.Settings
+	if err := json.Unmarshal(payload, &incoming); err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: fmt.Sprintf("解析配置失败: %v", err)})
+		return
+	}
+	if err := h.handleLoginPasswordChange(r.Context(), &incoming); err != nil {
+		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
+		return
+	}
+	incoming.LoginPassword = ""
+	if updated, err := json.Marshal(&incoming); err == nil {
+		payload = updated
+	}
 	if err := h.Store.SaveSettings(r.Context(), bytes.NewReader(payload)); err != nil {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
 		return
@@ -734,6 +747,44 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (h *Handlers) handleLoginPasswordChange(ctx context.Context, incoming *store.Settings) error {
+	if h == nil || h.Store == nil || h.Auth == nil || incoming == nil {
+		return nil
+	}
+	plain := strings.TrimSpace(incoming.LoginPassword)
+	if plain == "" {
+		return nil
+	}
+	if len([]rune(plain)) < 8 {
+		return fmt.Errorf("登录口令长度至少 8 位")
+	}
+	currentHash, currentVersion, err := h.Store.GetLoginPassword(ctx)
+	if err != nil {
+		return fmt.Errorf("读取当前登录口令失败: %w", err)
+	}
+	newHash, err := HashLoginPassword(plain)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(currentHash) == newHash {
+		incoming.LoginPassword = ""
+		return nil
+	}
+	if currentVersion <= 0 {
+		currentVersion = 1
+	}
+	newVersion := currentVersion + 1
+	if err := h.Store.UpdateLoginPassword(ctx, newHash, newVersion); err != nil {
+		return err
+	}
+	if err := h.Auth.UpdatePassword(newHash, newVersion); err != nil {
+		return fmt.Errorf("刷新内存登录口令失败: %w", err)
+	}
+	log.Printf("登录口令已更新，全部已登录会话需要重新认证。")
+	incoming.LoginPassword = ""
+	return nil
 }
 
 func (h *Handlers) decryptSettingsStruct(settings *store.Settings) error {

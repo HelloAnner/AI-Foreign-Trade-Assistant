@@ -17,6 +17,7 @@ const defaultState = () => ({
     smtp_password: '',
     smtp_security: 'auto',
     admin_email: '',
+    login_password: '',
     rating_guideline: '',
     automation_enabled: false,
     automation_followup_days: 3,

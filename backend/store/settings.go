@@ -25,6 +25,9 @@ type Settings struct {
 	AutomationEnabled       bool   `json:"automation_enabled"`
 	AutomationFollowupDays  int    `json:"automation_followup_days"`
 	AutomationRequiredGrade string `json:"automation_required_grade"`
+	LoginPassword           string `json:"login_password,omitempty"`
+	LoginPasswordHash       string `json:"-"`
+	LoginPasswordVersion    int    `json:"-"`
 }
 
 // GetSettings fetches the single settings row.
@@ -45,7 +48,9 @@ func (s *Store) GetSettings(ctx context.Context) (*Settings, error) {
 	  COALESCE(rating_guideline, ''),
 	  COALESCE(automation_enabled, 0),
 	  COALESCE(automation_followup_days, 0),
-	  COALESCE(automation_required_grade, '')
+	  COALESCE(automation_required_grade, ''),
+	  COALESCE(login_password_hash, ''),
+	  COALESCE(login_password_version, 1)
 	FROM settings WHERE id = 1;
 `)
 	var settings Settings
@@ -66,6 +71,8 @@ func (s *Store) GetSettings(ctx context.Context) (*Settings, error) {
 		&automationEnabledInt,
 		&settings.AutomationFollowupDays,
 		&settings.AutomationRequiredGrade,
+		&settings.LoginPasswordHash,
+		&settings.LoginPasswordVersion,
 	); err != nil {
 		return nil, fmt.Errorf("scan settings: %w", err)
 	}
@@ -77,6 +84,9 @@ func (s *Store) GetSettings(ctx context.Context) (*Settings, error) {
 	}
 	if strings.TrimSpace(settings.SMTPSecurity) == "" {
 		settings.SMTPSecurity = "auto"
+	}
+	if settings.LoginPasswordVersion <= 0 {
+		settings.LoginPasswordVersion = 1
 	}
 	return &settings, nil
 }

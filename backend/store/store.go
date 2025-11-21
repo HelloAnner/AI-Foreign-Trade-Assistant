@@ -42,27 +42,30 @@ func (s *Store) InitSchema(ctx context.Context) error {
 
 	statements := []string{
 		`PRAGMA journal_mode = WAL;`,
-		`CREATE TABLE IF NOT EXISTS settings (
-		id INTEGER PRIMARY KEY CHECK (id = 1),
-		llm_base_url TEXT,
-		llm_api_key TEXT,
-		llm_model TEXT,
-		my_company_name TEXT,
-		my_product_profile TEXT,
-		smtp_host TEXT,
-		smtp_port INTEGER,
-		smtp_username TEXT,
-		smtp_password TEXT,
-		admin_email TEXT,
-		rating_guideline TEXT,
-		search_provider TEXT,
-		search_api_key TEXT,
-		automation_enabled INTEGER DEFAULT 0,
-		automation_followup_days INTEGER DEFAULT 3,
-		automation_required_grade TEXT DEFAULT 'A',
-		created_at TEXT,
-		updated_at TEXT
-	);`,
+        `CREATE TABLE IF NOT EXISTS settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        llm_base_url TEXT,
+        llm_api_key TEXT,
+        llm_model TEXT,
+        my_company_name TEXT,
+        my_product_profile TEXT,
+        smtp_host TEXT,
+        smtp_port INTEGER,
+        smtp_username TEXT,
+        smtp_password TEXT,
+        smtp_security TEXT DEFAULT 'auto',
+        admin_email TEXT,
+        rating_guideline TEXT,
+        search_provider TEXT,
+        search_api_key TEXT,
+        automation_enabled INTEGER DEFAULT 0,
+        automation_followup_days INTEGER DEFAULT 3,
+        automation_required_grade TEXT DEFAULT 'A',
+        login_password_hash TEXT,
+        login_password_version INTEGER DEFAULT 1,
+        created_at TEXT,
+        updated_at TEXT
+    );`,
 		`INSERT INTO settings (id, created_at, updated_at)
 			SELECT 1, datetime('now'), datetime('now')
 			WHERE NOT EXISTS (SELECT 1 FROM settings WHERE id = 1);`,
@@ -214,6 +217,18 @@ func (s *Store) InitSchema(ctx context.Context) error {
 		}
 	}
 
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE settings ADD COLUMN login_password_hash TEXT`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure login_password_hash column: %w", err)
+		}
+	}
+
+	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE settings ADD COLUMN login_password_version INTEGER DEFAULT 1`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure login_password_version column: %w", err)
+		}
+	}
+
 	if _, err := s.DB.ExecContext(ctx, `ALTER TABLE scheduled_tasks ADD COLUMN schedule_mode TEXT DEFAULT 'simple'`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column name") {
 			return fmt.Errorf("ensure schedule_mode column: %w", err)
@@ -292,4 +307,40 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// GetLoginPassword retrieves hashed login password and version.
+func (s *Store) GetLoginPassword(ctx context.Context) (string, int, error) {
+	if s == nil || s.DB == nil {
+		return "", 0, fmt.Errorf("store not initialized")
+	}
+	var hash sql.NullString
+	var version sql.NullInt64
+	if err := s.DB.QueryRowContext(ctx, `SELECT login_password_hash, login_password_version FROM settings WHERE id = 1`).
+		Scan(&hash, &version); err != nil {
+		return "", 0, fmt.Errorf("query login password: %w", err)
+	}
+	v := 1
+	if version.Valid && version.Int64 > 0 {
+		v = int(version.Int64)
+	}
+	return hash.String, v, nil
+}
+
+// UpdateLoginPassword stores the hashed password and version.
+func (s *Store) UpdateLoginPassword(ctx context.Context, hash string, version int) error {
+	if s == nil || s.DB == nil {
+		return fmt.Errorf("store not initialized")
+	}
+	if version <= 0 {
+		version = 1
+	}
+	_, err := s.DB.ExecContext(ctx, `
+		UPDATE settings SET login_password_hash = ?, login_password_version = ?, updated_at = datetime('now')
+		WHERE id = 1;
+	`, hash, version)
+	if err != nil {
+		return fmt.Errorf("update login password: %w", err)
+	}
+	return nil
 }

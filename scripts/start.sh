@@ -9,8 +9,8 @@ APP_NAME="ai-foreign-trade-assistant"
 IMAGE_NAME="${APP_NAME}:latest"
 CONTAINER_NAME="${APP_NAME}-runner"
 HOST_HOME="${HOST_HOME_OVERRIDE:-$HOME}"
-DATA_DIR="${FOREIGN_TRADE_DATA_DIR:-$HOST_HOME/.foreign_trade}"
-CONTAINER_DATA_ROOT="/data/.foreign_trade"
+DEFAULT_DATA_DIR="${HOST_HOME}/.foreign_trade"
+CONTAINER_DATA_ROOT="/data"
 DEFAULT_HTTP_PORT=25000
 
 if [ -n "${APP_HTTP_ADDR:-}" ]; then
@@ -24,8 +24,6 @@ else
   HOST_PORT="$DEFAULT_HTTP_PORT"
 fi
 
-HEALTH_URL="http://127.0.0.1:${HOST_PORT}/api/health"
-
 log() {
   printf '[start] %s\n' "$*"
 }
@@ -37,8 +35,9 @@ require_cmd() {
   fi
 }
 
+DATA_DIR="${FOREIGN_TRADE_DATA_DIR:-$DEFAULT_DATA_DIR}"
+
 require_cmd docker
-require_cmd curl
 
 DOCKER=(docker)
 if [ -n "${DOCKER_CONTEXT:-}" ]; then
@@ -72,6 +71,7 @@ build_image() {
 start_container() {
   log "启动容器 ${CONTAINER_NAME}..."
   mkdir -p "$DATA_DIR"
+  log "挂载数据目录: $DATA_DIR -> ${CONTAINER_DATA_ROOT}"
   local docker_env=(-e "TZ=${TZ:-Asia/Shanghai}")
   if [ -n "${APP_PORT:-}" ]; then
     docker_env+=(-e "APP_PORT=${APP_PORT}")
