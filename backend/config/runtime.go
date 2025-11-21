@@ -16,7 +16,7 @@ const (
 	LogDirName       = "logs"
 	CacheDirName     = "cache"
 	ExportsDirName   = "exports"
-	DefaultHTTPAddr  = "0.0.0.0:7860"
+	DefaultHTTPAddr  = "0.0.0.0:25000"
 	httpAddrEnvKey   = "APP_HTTP_ADDR"
 	httpPortEnvKey   = "APP_PORT"
 )
