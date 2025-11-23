@@ -53,8 +53,9 @@ router.beforeEach((to, from, next) => {
   }
 
   if (token && to.name === 'login') {
-    const fallback = typeof to.query.redirect === 'string' && to.query.redirect ? to.query.redirect : from.fullPath || '/'
-    next(fallback)
+    // If logged in user tries to access login page, redirect to home or redirect parameter
+    const redirect = typeof to.query.redirect === 'string' && to.query.redirect ? to.query.redirect : '/'
+    next(redirect)
     return
   }
   next()

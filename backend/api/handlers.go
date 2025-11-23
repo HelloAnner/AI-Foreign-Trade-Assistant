@@ -754,7 +754,9 @@ func (h *Handlers) handleLoginPasswordChange(ctx context.Context, incoming *stor
 		return nil
 	}
 	plain := strings.TrimSpace(incoming.LoginPassword)
+	log.Printf("[DEBUG] handleLoginPasswordChange - 收到密码(前50字符): %q", plain[:min(50, len(plain))])
 	if plain == "" {
+		log.Printf("[DEBUG] handleLoginPasswordChange - 密码为空")
 		return nil
 	}
 	if len([]rune(plain)) < 8 {
@@ -764,11 +766,21 @@ func (h *Handlers) handleLoginPasswordChange(ctx context.Context, incoming *stor
 	if err != nil {
 		return fmt.Errorf("读取当前登录口令失败: %w", err)
 	}
-	newHash, err := HashLoginPassword(plain)
+	log.Printf("[DEBUG] handleLoginPasswordChange - 当前数据库哈希: %s", currentHash)
+	// 前端发送的密码已加密，需要先解密再计算哈希
+	log.Printf("[DEBUG] handleLoginPasswordChange - 开始解密密码...")
+	decryptedPassword, err := h.Auth.DecryptField(plain)
+	if err != nil {
+		return fmt.Errorf("解密登录口令失败: %w", err)
+	}
+	log.Printf("[DEBUG] handleLoginPasswordChange - 解密后明文: %q", decryptedPassword)
+	newHash, err := HashLoginPassword(decryptedPassword)
 	if err != nil {
 		return err
 	}
+	log.Printf("[DEBUG] handleLoginPasswordChange - 新密码哈希: %s", newHash)
 	if strings.TrimSpace(currentHash) == newHash {
+		log.Printf("[DEBUG] handleLoginPasswordChange - 密码未变化，跳过更新")
 		incoming.LoginPassword = ""
 		return nil
 	}
@@ -776,13 +788,14 @@ func (h *Handlers) handleLoginPasswordChange(ctx context.Context, incoming *stor
 		currentVersion = 1
 	}
 	newVersion := currentVersion + 1
+	log.Printf("[DEBUG] handleLoginPasswordChange - 更新密码到版本 %d", newVersion)
 	if err := h.Store.UpdateLoginPassword(ctx, newHash, newVersion); err != nil {
 		return err
 	}
 	if err := h.Auth.UpdatePassword(newHash, newVersion); err != nil {
 		return fmt.Errorf("刷新内存登录口令失败: %w", err)
 	}
-	log.Printf("登录口令已更新，全部已登录会话需要重新认证。")
+	log.Printf("[DEBUG] handleLoginPasswordChange - ✅ 登录口令更新成功")
 	incoming.LoginPassword = ""
 	return nil
 }

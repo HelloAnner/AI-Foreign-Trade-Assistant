@@ -31,6 +31,7 @@ const (
 	defaultIssuer          = "ai-foreign-trade-assistant"
 	encryptedPrefix        = "enc:"
 	rsaPrefix              = "rsa:"
+	ctrPrefix              = "ctr:"
 	tokenCookieName        = "fta_token"
 	authHeaderBearerPrefix = "bearer "
 )
@@ -85,6 +86,8 @@ type AuthManager struct {
 	publicKeyPEM string
 	keyID        string
 	keyGenerated time.Time
+	// encryptionKey is stored for CTR mode decryption compatibility
+	encryptionKey [32]byte
 }
 
 // PublicKeyPayload 用于向前端暴露的密钥信息。
@@ -179,6 +182,7 @@ func NewAuthManager(cfg AuthConfig) (*AuthManager, error) {
 		publicKeyPEM:    string(pemBytes),
 		keyID:           keyID,
 		keyGenerated:    time.Now().UTC(),
+		encryptionKey:   keyDigest,
 	}, nil
 }
 
@@ -205,19 +209,38 @@ func (a *AuthManager) IssueToken(cipherText string) (string, time.Time, error) {
 	if a == nil {
 		return "", time.Time{}, fmt.Errorf("鉴权模块未初始化")
 	}
+	if len(cipherText) > 0 {
+		log.Printf("[DEBUG] IssueToken - 收到密文前缀: %s... (总长度: %d)", cipherText[:min(20, len(cipherText))], len(cipherText))
+	} else {
+		log.Printf("[DEBUG] IssueToken - 收到空密文")
+	}
 	plain, err := a.decryptCipher(cipherText)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("解密登录口令失败: %w", err)
 	}
-	inputHash := sha256.Sum256([]byte(strings.TrimSpace(plain)))
+	log.Printf("[DEBUG] IssueToken - 解密后明文: %q", plain)
+	trimmedPlain := strings.TrimSpace(plain)
+	inputHash := sha256.Sum256([]byte(trimmedPlain))
 	a.mu.RLock()
 	expected := a.passwordHash
 	version := a.passwordVersion
 	a.mu.RUnlock()
+	log.Printf("[DEBUG] IssueToken - 输入密码哈希: %x", inputHash)
+	log.Printf("[DEBUG] IssueToken - 期望密码哈希: %x", expected)
+	log.Printf("[DEBUG] IssueToken - 密码版本: %d", version)
 	if subtle.ConstantTimeCompare(expected[:], inputHash[:]) != 1 {
+		log.Printf("[DEBUG] IssueToken - ❌ 密码不匹配")
 		return "", time.Time{}, fmt.Errorf("口令不正确")
 	}
+	log.Printf("[DEBUG] IssueToken - ✅ 密码匹配成功")
 	return a.generateToken(version)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // ValidateToken 校验 token 并返回声明。
@@ -276,7 +299,7 @@ func (a *AuthManager) UpdatePassword(hashHex string, version int) error {
 	return nil
 }
 
-// DecryptField 若字符串带有前缀则进行解密。
+// DecryptField 若字符串带有 rsa: enc: ctr: 前缀则进行解密。
 func (a *AuthManager) DecryptField(value string) (string, error) {
 	if a == nil {
 		return value, fmt.Errorf("鉴权模块未初始化")
@@ -285,7 +308,7 @@ func (a *AuthManager) DecryptField(value string) (string, error) {
 	if trimmed == "" {
 		return value, nil
 	}
-	if strings.HasPrefix(trimmed, rsaPrefix) || strings.HasPrefix(trimmed, encryptedPrefix) {
+	if strings.HasPrefix(trimmed, rsaPrefix) || strings.HasPrefix(trimmed, encryptedPrefix) || strings.HasPrefix(trimmed, ctrPrefix) {
 		return a.decryptCipher(trimmed)
 	}
 	return value, nil
@@ -369,6 +392,8 @@ func (a *AuthManager) decryptCipher(value string) (string, error) {
 			return "", fmt.Errorf("服务器未启用 AES 解密")
 		}
 		return a.decryptAES(strings.TrimPrefix(trimmed, encryptedPrefix))
+	case strings.HasPrefix(trimmed, ctrPrefix):
+		return a.decryptCTR(strings.TrimPrefix(trimmed, ctrPrefix))
 	default:
 		if a.privateKey != nil {
 			return a.decryptRSA(trimmed)
@@ -411,6 +436,40 @@ func (a *AuthManager) decryptRSA(payload string) (string, error) {
 		return "", fmt.Errorf("RSA-OAEP 解密失败: %w", err)
 	}
 	return string(plain), nil
+}
+
+// decryptCTR decrypts AES-256-CTR encrypted ciphertext from crypto-js
+// Format: base64(IV[16 bytes] + Ciphertext)
+func (a *AuthManager) decryptCTR(payload string) (string, error) {
+	// CTR mode shares the same key as AES-GCM (from EncryptionKey)
+	raw, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return "", fmt.Errorf("Base64 解码失败: %w", err)
+	}
+
+	// Extract IV (16 bytes for CTR mode)
+	ivSize := 16
+	if len(raw) <= ivSize {
+		return "", fmt.Errorf("CTR 密文长度不合法")
+	}
+
+	iv := raw[:ivSize]
+	ciphertext := raw[ivSize:]
+
+	// Create AES cipher in CTR mode using the stored encryption key
+	block, err := aes.NewCipher(a.encryptionKey[:])
+	if err != nil {
+		return "", fmt.Errorf("创建 AES cipher 失败: %w", err)
+	}
+
+	// Create CTR stream
+	stream := cipher.NewCTR(block, iv)
+
+	// Decrypt
+	plaintext := make([]byte, len(ciphertext))
+	stream.XORKeyStream(plaintext, ciphertext)
+
+	return string(plaintext), nil
 }
 
 func (a *AuthManager) generateToken(version int) (string, time.Time, error) {

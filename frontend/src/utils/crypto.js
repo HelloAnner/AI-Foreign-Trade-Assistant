@@ -1,6 +1,7 @@
 const RSA_PREFIX = 'rsa:'
 const AES_PREFIX = 'enc:'
-const LEGACY_PREFIXES = [RSA_PREFIX, AES_PREFIX]
+const CTR_PREFIX = 'ctr:'
+const LEGACY_PREFIXES = [RSA_PREFIX, AES_PREFIX, CTR_PREFIX]
 const SENSITIVE_KEY_PATTERNS = [/password/i, /api_key/i, /secret/i, /token/i]
 
 const encoder = new TextEncoder()
@@ -9,6 +10,16 @@ const decoder = new TextDecoder()
 let publicKeyPromise
 let cachedMeta
 let aesKeyPromise
+let webCryptoSupported = false
+
+// Check if Web Crypto is supported
+try {
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+    webCryptoSupported = true
+  }
+} catch (e) {
+  webCryptoSupported = false
+}
 
 const getSymmetricSecret = () => {
   return import.meta.env.VITE_APP_ENCRYPTION_KEY || 'AI_FTA::crypto::v1'
@@ -16,8 +27,8 @@ const getSymmetricSecret = () => {
 
 const getAesKey = () => {
   if (aesKeyPromise) return aesKeyPromise
-  if (typeof window === 'undefined' || !window.crypto?.subtle) {
-    throw new Error('当前环境不支持 Web Crypto')
+  if (!webCryptoSupported) {
+    throw new Error('当前环境不支持 Web Crypto，无法使用 AES-GCM 加密')
   }
   aesKeyPromise = (async () => {
     const secret = getSymmetricSecret()
@@ -65,8 +76,8 @@ const fetchPublicKey = async () => {
 
 const getCryptoKey = async () => {
   if (publicKeyPromise) return publicKeyPromise
-  if (typeof window === 'undefined' || !window.crypto?.subtle) {
-    throw new Error('当前环境不支持 Web Crypto')
+  if (!webCryptoSupported) {
+    throw new Error('当前环境不支持 Web Crypto，无法使用 RSA-OAEP 加密')
   }
   publicKeyPromise = (async () => {
     const meta = await fetchPublicKey()
@@ -88,8 +99,49 @@ export const resetCryptoKey = () => {
   cachedMeta = null
 }
 
+const encryptWithFallback = async (text) => {
+  // Fallback CTR encryption using crypto-js when Web Crypto is not available
+  try {
+    // Dynamic import for crypto-js to avoid bundling issues
+    const CryptoJS = await import('crypto-js')
+
+    const secret = getSymmetricSecret()
+    const key = CryptoJS.SHA256(secret).toString(CryptoJS.enc.Hex)
+
+    // Generate 16 bytes IV for CTR mode
+    const iv = CryptoJS.lib.WordArray.random(16)
+
+    // Encrypt with AES-256-CTR
+    const encrypted = CryptoJS.AES.encrypt(
+      text,
+      CryptoJS.enc.Hex.parse(key),
+      {
+        iv: iv,
+        mode: CryptoJS.mode.CTR,
+        padding: CryptoJS.pad.NoPadding
+      }
+    )
+
+    // Combine IV + ciphertext
+    const combined = iv.clone()
+    combined.concat(encrypted.ciphertext)
+
+    // Return CTR prefix
+    return `${CTR_PREFIX}${combined.toString(CryptoJS.enc.Base64)}`
+  } catch (error) {
+    console.error('Fallback encryption failed:', error)
+    throw new Error('加密失败，当前环境不支持 Web Crypto，且后备加密库加载失败')
+  }
+}
+
 export const encryptValue = async (text, withPrefix = true) => {
   if (!text) return ''
+
+  // If Web Crypto is not supported, use fallback
+  if (!webCryptoSupported) {
+    return encryptWithFallback(text)
+  }
+
   try {
     const key = await getCryptoKey()
     const encoded = encoder.encode(text)
@@ -143,6 +195,8 @@ const decryptValue = async (value) => {
 
 const shouldEncryptKey = (key) => {
   if (!key) return false
+  // login_password 字段在密码修改时需要明文发送，不应该加密
+  if (key === 'login_password') return false
   return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key))
 }
 
