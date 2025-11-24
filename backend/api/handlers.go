@@ -29,6 +29,8 @@ type Response struct {
 	Error string      `json:"error,omitempty"`
 }
 
+const maskedSecretPlaceholder = "******"
+
 // Handlers groups dependencies for HTTP handlers.
 type Handlers struct {
 	Store         *store.Store
@@ -101,7 +103,7 @@ func (h *Handlers) GetSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, Response{OK: true, Data: sanitizeSettings(h.Auth, settings)})
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: sanitizeSettings(settings)})
 }
 
 // ListCustomers returns the customer summaries for management UI.
@@ -211,6 +213,18 @@ func (h *Handlers) SaveSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: fmt.Sprintf("解析配置失败: %v", err)})
 		return
 	}
+	if containsMaskedSecrets(&incoming) {
+		if h.Store == nil {
+			writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: "存储组件未初始化，无法保留敏感字段"})
+			return
+		}
+		existing, err := h.Store.GetSettings(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, Response{OK: false, Error: fmt.Sprintf("读取当前配置失败: %v", err)})
+			return
+		}
+		restoreMaskedSecrets(&incoming, existing)
+	}
 	if err := h.handleLoginPasswordChange(r.Context(), &incoming); err != nil {
 		writeJSON(w, http.StatusBadRequest, Response{OK: false, Error: err.Error()})
 		return
@@ -228,7 +242,7 @@ func (h *Handlers) SaveSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, Response{OK: true})
 		return
 	}
-	writeJSON(w, http.StatusOK, Response{OK: true, Data: sanitizeSettings(h.Auth, settings)})
+	writeJSON(w, http.StatusOK, Response{OK: true, Data: sanitizeSettings(settings)})
 }
 
 // TestLLM validates the configured LLM credentials.
@@ -811,7 +825,12 @@ func (h *Handlers) decryptSettingsStruct(settings *store.Settings) error {
 			continue
 		}
 		raw := field.String()
-		if strings.TrimSpace(raw) == "" {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		if trimmed == maskedSecretPlaceholder {
+			field.SetString("")
 			continue
 		}
 		plain, err := h.Auth.DecryptField(raw)
@@ -825,36 +844,99 @@ func (h *Handlers) decryptSettingsStruct(settings *store.Settings) error {
 	return nil
 }
 
-func sanitizeSettings(auth *AuthManager, settings *store.Settings) *store.Settings {
+func sanitizeSettings(settings *store.Settings) *store.Settings {
 	if settings == nil {
 		return nil
 	}
 	sanitized := *settings
-	val := reflect.ValueOf(&sanitized).Elem()
+	maskSensitiveStrings(&sanitized)
+	return &sanitized
+}
+
+func maskSensitiveStrings(settings *store.Settings) {
+	if settings == nil {
+		return
+	}
+	val := reflect.ValueOf(settings).Elem()
 	typ := val.Type()
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Field(i)
 		if field.Kind() != reflect.String {
 			continue
 		}
-		name := strings.ToLower(typ.Field(i).Name)
-		if !strings.Contains(name, "password") && !strings.Contains(name, "key") && !strings.Contains(name, "secret") && !strings.Contains(name, "token") {
-			continue
-		}
-		raw := field.String()
-		if strings.TrimSpace(raw) == "" || auth == nil {
+		name := typ.Field(i).Name
+		if name == "LoginPassword" {
 			field.SetString("")
 			continue
 		}
-		enc, err := auth.EncryptField(raw)
-		if err != nil {
-			log.Printf("sanitize settings: encrypt %s failed: %v", name, err)
+		if !isSensitiveFieldName(name) {
+			continue
+		}
+		if strings.TrimSpace(field.String()) == "" {
 			field.SetString("")
 			continue
 		}
-		field.SetString(enc)
+		field.SetString(maskedSecretPlaceholder)
 	}
-	return &sanitized
+}
+
+func containsMaskedSecrets(settings *store.Settings) bool {
+	if settings == nil {
+		return false
+	}
+	val := reflect.ValueOf(settings).Elem()
+	typ := val.Type()
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Field(i)
+		if field.Kind() != reflect.String {
+			continue
+		}
+		name := typ.Field(i).Name
+		if name == "LoginPassword" || !isSensitiveFieldName(name) {
+			continue
+		}
+		if strings.TrimSpace(field.String()) == maskedSecretPlaceholder {
+			return true
+		}
+	}
+	return false
+}
+
+func restoreMaskedSecrets(target, existing *store.Settings) {
+	if target == nil || existing == nil {
+		return
+	}
+	dst := reflect.ValueOf(target).Elem()
+	src := reflect.ValueOf(existing).Elem()
+	typ := dst.Type()
+	for i := 0; i < dst.NumField(); i++ {
+		dstField := dst.Field(i)
+		if dstField.Kind() != reflect.String {
+			continue
+		}
+		name := typ.Field(i).Name
+		if name == "LoginPassword" || !isSensitiveFieldName(name) {
+			continue
+		}
+		if strings.TrimSpace(dstField.String()) != maskedSecretPlaceholder {
+			continue
+		}
+		srcField := src.Field(i)
+		if srcField.Kind() == reflect.String {
+			dstField.SetString(srcField.String())
+		}
+	}
+}
+
+func isSensitiveFieldName(name string) bool {
+	if name == "" {
+		return false
+	}
+	trimmed := strings.ToLower(name)
+	return strings.Contains(trimmed, "password") ||
+		strings.Contains(trimmed, "key") ||
+		strings.Contains(trimmed, "secret") ||
+		strings.Contains(trimmed, "token")
 }
 
 func decodeJSON(r *http.Request, v interface{}) error {

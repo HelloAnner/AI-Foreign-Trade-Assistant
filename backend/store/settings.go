@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 )
 
@@ -76,6 +77,9 @@ func (s *Store) GetSettings(ctx context.Context) (*Settings, error) {
 	); err != nil {
 		return nil, fmt.Errorf("scan settings: %w", err)
 	}
+	if err := decryptSettingsSecrets(&settings); err != nil {
+		return nil, fmt.Errorf("decrypt settings secrets: %w", err)
+	}
 	if automationEnabledInt == 1 {
 		settings.AutomationEnabled = true
 	}
@@ -105,6 +109,11 @@ func (s *Store) SaveSettings(ctx context.Context, body io.Reader) error {
 		payload.SMTPSecurity = "auto"
 	}
 
+	toStore := payload
+	if err := encryptSettingsSecrets(&toStore); err != nil {
+		return fmt.Errorf("encrypt settings secrets: %w", err)
+	}
+
 	_, err := s.DB.ExecContext(ctx, `
 		UPDATE settings
 		SET llm_base_url = ?, llm_api_key = ?, llm_model = ?,
@@ -116,21 +125,21 @@ func (s *Store) SaveSettings(ctx context.Context, body io.Reader) error {
 		    updated_at = datetime('now')
 		WHERE id = 1;
 	`,
-		payload.LLMBaseURL,
-		payload.LLMAPIKey,
-		payload.LLMModel,
-		payload.MyCompanyName,
-		payload.MyProduct,
-		payload.SMTPHost,
-		payload.SMTPPort,
-		payload.SMTPUsername,
-		payload.SMTPPassword,
-		payload.SMTPSecurity,
-		payload.AdminEmail,
-		payload.RatingGuideline,
-		boolToInt(payload.AutomationEnabled),
-		payload.AutomationFollowupDays,
-		payload.AutomationRequiredGrade,
+		toStore.LLMBaseURL,
+		toStore.LLMAPIKey,
+		toStore.LLMModel,
+		toStore.MyCompanyName,
+		toStore.MyProduct,
+		toStore.SMTPHost,
+		toStore.SMTPPort,
+		toStore.SMTPUsername,
+		toStore.SMTPPassword,
+		toStore.SMTPSecurity,
+		toStore.AdminEmail,
+		toStore.RatingGuideline,
+		boolToInt(toStore.AutomationEnabled),
+		toStore.AutomationFollowupDays,
+		toStore.AutomationRequiredGrade,
 	)
 	if err != nil {
 		return fmt.Errorf("update settings: %w", err)
@@ -143,4 +152,63 @@ func boolToInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func encryptSettingsSecrets(settings *Settings) error {
+	return transformSettingsSecrets(settings, encryptSecretValue)
+}
+
+func decryptSettingsSecrets(settings *Settings) error {
+	return transformSettingsSecrets(settings, decryptSecretValue)
+}
+
+type secretTransform func(string) (string, error)
+
+func transformSettingsSecrets(settings *Settings, fn secretTransform) error {
+	if settings == nil {
+		return nil
+	}
+	val := reflect.ValueOf(settings).Elem()
+	typ := val.Type()
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Field(i)
+		if !field.CanSet() || field.Kind() != reflect.String {
+			continue
+		}
+		name := typ.Field(i).Name
+		if skipSettingsSecretField(name) || !isSensitiveSettingsField(name) {
+			continue
+		}
+		trimmed := strings.TrimSpace(field.String())
+		if trimmed == "" {
+			field.SetString("")
+			continue
+		}
+		updated, err := fn(trimmed)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		field.SetString(updated)
+	}
+	return nil
+}
+
+func skipSettingsSecretField(name string) bool {
+	switch name {
+	case "LoginPassword", "LoginPasswordHash":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSensitiveSettingsField(name string) bool {
+	if name == "" {
+		return false
+	}
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "password") ||
+		strings.Contains(lower, "key") ||
+		strings.Contains(lower, "secret") ||
+		strings.Contains(lower, "token")
 }

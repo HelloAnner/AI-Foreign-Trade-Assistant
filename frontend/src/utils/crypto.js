@@ -3,6 +3,7 @@ const AES_PREFIX = 'enc:'
 const CTR_PREFIX = 'ctr:'
 const LEGACY_PREFIXES = [RSA_PREFIX, AES_PREFIX, CTR_PREFIX]
 const SENSITIVE_KEY_PATTERNS = [/password/i, /api_key/i, /secret/i, /token/i]
+const MASKED_SECRET_PLACEHOLDER = '******'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -195,8 +196,6 @@ const decryptValue = async (value) => {
 
 const shouldEncryptKey = (key) => {
   if (!key) return false
-  // login_password 字段在密码修改时需要明文发送，不应该加密
-  if (key === 'login_password') return false
   return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key))
 }
 
@@ -206,7 +205,7 @@ export const encryptSensitivePayload = async (payload) => {
   for (const [key, value] of Object.entries(clone)) {
     if (!shouldEncryptKey(key) || typeof value !== 'string') continue
     const trimmed = value.trim()
-    if (!trimmed || isAlreadyEncrypted(trimmed)) continue
+    if (!trimmed || trimmed === MASKED_SECRET_PLACEHOLDER || isAlreadyEncrypted(trimmed)) continue
     clone[key] = await encryptValue(trimmed)
   }
   return clone
@@ -234,11 +233,15 @@ export const encryptFields = async (payload, fields) => {
   const clone = { ...payload }
   for (const field of fields) {
     const value = clone[field]
-    if (typeof value === 'string' && value.trim() !== '' && !isAlreadyEncrypted(value.trim())) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (!trimmed || trimmed === MASKED_SECRET_PLACEHOLDER || isAlreadyEncrypted(trimmed)) {
+        continue
+      }
       clone[field] = await encryptValue(value)
     }
   }
   return clone
 }
 
-export { RSA_PREFIX }
+export { RSA_PREFIX, MASKED_SECRET_PLACEHOLDER }
