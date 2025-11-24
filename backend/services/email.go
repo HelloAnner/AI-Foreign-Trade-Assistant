@@ -130,6 +130,8 @@ func buildInitialEmailPrompt(customer *domain.Customer, analysis *domain.Analysi
 	sb.WriteString("\n我的公司名: " + strings.TrimSpace(settings.MyCompanyName) + "\n")
 	sb.WriteString("产品简介: " + strings.TrimSpace(settings.MyProduct) + "\n")
 	sb.WriteString("目标联系人: " + contactLine + "\n")
+	sb.WriteString("请参考以下三段式英文邮件的结构与语气（仅示例，不可直接复制原文）：\n")
+	sb.WriteString("Dear Shirley,\nThank you for your feedback.\nFor your information, we have received quotation for gold plated > 3microns with this target price in average.\nLet me know if your price can be more competitive.\nI would be happy to consider a partnership then.\nThank you very much for your continuous support,\nKind regards,\n")
 	sb.WriteString(`
 请使用简洁商务英文，输出 JSON：{
   "subject": "邮件标题",
@@ -149,6 +151,14 @@ func buildFollowupPrompt(contextEmail *domain.EmailRecord, settings *store.Setti
   "subject": "标题",
   "body": "正文"
 }
+请继续参考以下三段式示例的语气与节奏（不可原封不动复制内容）：
+Dear Shirley,
+Thank you for your feedback.
+For your information, we have received quotation for gold plated > 3microns with this target price in average.
+Let me know if your price can be more competitive.
+I would be happy to consider a partnership then.
+Thank you very much for your continuous support,
+Kind regards,
 `)
 	if strings.TrimSpace(settings.MyCompanyName) != "" {
 		sb.WriteString("发件公司: " + strings.TrimSpace(settings.MyCompanyName) + "\n")
