@@ -1,19 +1,21 @@
 package services
 
 import (
-	"context"
-	"fmt"
-	"log"
-	"net/http"
-	"net/url"
-	"os/exec"
-	"runtime"
-	"strings"
-	"sync"
-	"time"
+    "context"
+    "fmt"
+    "log"
+    "net/http"
+    "net/url"
+    "os"
+    "os/exec"
+    "runtime"
+    "strconv"
+    "strings"
+    "sync"
+    "time"
 
-	"github.com/anner/ai-foreign-trade-assistant/backend/store"
-	"github.com/playwright-community/playwright-go"
+    "github.com/anner/ai-foreign-trade-assistant/backend/store"
+    "github.com/playwright-community/playwright-go"
 )
 
 const (
@@ -363,8 +365,8 @@ func (c *SearchClient) searchWithPlaywright(ctx context.Context, query string, l
 
 	log.Printf("[search] provider=%s playwright query=\"%s\" limit=%d", c.provider.displayName(), truncateForLog(query, 80), limit)
 
-	// Run Playwright search
-	items, err := runPlaywrightSearch(ctx, query, limit, c.provider)
+    // Run Playwright search
+    items, err := runPlaywrightSearch(ctx, query, limit, c.provider)
 	if err != nil {
 		return nil, fmt.Errorf("Playwright search failed: %w", err)
 	}
@@ -380,31 +382,22 @@ func (c *SearchClient) searchWithPlaywright(ctx context.Context, query string, l
 
 // runPlaywrightSearch executes search using Playwright for the configured provider.
 func runPlaywrightSearch(ctx context.Context, query string, limit int, provider searchProvider) ([]SearchItem, error) {
-	// Start Playwright
-	pw, err := playwright.Run()
-	if err != nil {
-		return nil, fmt.Errorf("failed to start Playwright: %w", err)
-	}
-	defer pw.Stop()
+    // Start Playwright
+    pw, err := playwright.Run()
+    if err != nil {
+        return nil, fmt.Errorf("failed to start Playwright: %w", err)
+    }
+    defer pw.Stop()
 
-	// Create browser context with anti-detection measures
-	userAgent := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    // Create browser context with anti-detection measures
+    userAgent := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(true),
-		Args: []string{
-			"--disable-blink-features=AutomationControlled",
-			"--no-sandbox",
-			"--disable-setuid-sandbox",
-			"--disable-dev-shm-usage",
-			"--disable-web-security",
-			"--disable-features=VizDisplayCompositor",
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to launch browser: %w", err)
-	}
-	defer browser.Close()
+    // Prefer远程浏览器（Browserless）优先，其次本地内置浏览器
+    browser, err := connectOrLaunchBrowser(pw)
+    if err != nil {
+        return nil, fmt.Errorf("failed to get browser: %w", err)
+    }
+    defer browser.Close()
 
 	// Create context with custom user agent
 	ctxPW, err := browser.NewContext(playwright.BrowserNewContextOptions{
@@ -459,6 +452,46 @@ func runPlaywrightSearch(ctx context.Context, query string, limit int, provider 
 	}
 
 	return results, nil
+}
+
+// connectOrLaunchBrowser 尝试优先连接远程浏览器（如 Browserless v2 的 Playwright 端点），
+// 若未配置则回退到本地无头浏览器。通过以下环境变量控制：
+// - BROWSERLESS_URL: ws 连接地址，例如 ws://browserless:3000/chromium/playwright?token=devtoken
+// - BROWSERLESS_MODE: "playwright"(默认) 或 "cdp"，决定使用 Connect 或 ConnectOverCDP
+// - PW_SLOWMO_MS: 可选，慢速模式毫秒值，便于观察调试
+func connectOrLaunchBrowser(pw *playwright.Playwright) (playwright.Browser, error) {
+    ws := strings.TrimSpace(os.Getenv("BROWSERLESS_URL"))
+    slow := 0.0
+    if v := strings.TrimSpace(os.Getenv("PW_SLOWMO_MS")); v != "" {
+        if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+            slow = f
+        }
+    }
+    if ws != "" {
+        mode := strings.ToLower(strings.TrimSpace(os.Getenv("BROWSERLESS_MODE")))
+        if mode == "cdp" {
+            // 通过 CDP 连接远程浏览器
+            return pw.Chromium.ConnectOverCDP(ws, playwright.BrowserTypeConnectOverCDPOptions{
+                SlowMo: playwright.Float(slow),
+            })
+        }
+        // 默认使用 Playwright 原生 ws 端点
+        return pw.Chromium.Connect(ws, playwright.BrowserTypeConnectOptions{
+            SlowMo: playwright.Float(slow),
+        })
+    }
+    // 本地启动模式：无头 + 反自动化标志
+    return pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+        Headless: playwright.Bool(true),
+        Args: []string{
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-web-security",
+            "--disable-features=VizDisplayCompositor",
+        },
+    })
 }
 
 // extractSearchResults extracts results from the active search provider.

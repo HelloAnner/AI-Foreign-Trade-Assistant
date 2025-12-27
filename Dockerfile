@@ -1,5 +1,6 @@
 # Unified builder stage (installs Node & Go manually to avoid extra base pulls)
-FROM debian:bookworm-slim AS builder
+# 使用 DaoCloud 加速的 Docker Hub 镜像源
+FROM m.daocloud.io/docker.io/debian:bookworm-slim AS builder
 
 ARG NODE_VERSION=22.12.0
 ARG GO_VERSION=1.22.6
@@ -68,7 +69,7 @@ RUN mkdir -p "$PLAYWRIGHT_DRIVER_PATH" "$PLAYWRIGHT_BROWSERS_PATH" \
     && go run github.com/playwright-community/playwright-go/cmd/playwright@v0.4902.0 install chromium
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM m.daocloud.io/docker.io/debian:bookworm-slim
 
 ENV PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
